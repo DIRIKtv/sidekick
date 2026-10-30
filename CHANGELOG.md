@@ -3,6 +3,11 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.3.3 · October 29, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **New icons:** a cleaner, bolder icon set throughout the app that's easier to see from the couch
+
 ## 1.3.2 · October 23, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
