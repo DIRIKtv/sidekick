@@ -22,7 +22,7 @@ import com.diriktv.sidekick.ui.inflate
 
 class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerView.Adapter<ChatAdapter.VH>() {
     private val messages = ArrayList<ChatMessage>()
-    private val images = LruCache<String, Drawable>(400)
+    private val images = LruCache<String, Drawable>(600)
     private val pending = HashSet<String>()
     private var refreshPosted = false
     private var recycler: RecyclerView? = null
@@ -173,20 +173,40 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
         sb.setSpan(CenteredImageSpan(copy), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
+    /**
+     * Emotes and badges are decoded at about the largest size chat draws them, not their full
+     * size: decoding is the slow part on TV hardware.
+     */
+    private val decodeHeight = (40 * context.resources.displayMetrics.scaledDensity).toInt()
+
     /** A cached network image (emote or badge), or null while it loads; rows redraw when it arrives. */
     private fun remoteImage(url: String): Drawable? {
         images.get(url)?.let { return it }
-        if (pending.add(url)) {
-            val req = ImageRequest.Builder(context)
-                .data(url)
-                .target(onSuccess = { image ->
-                    images.put(url, image.asDrawable(context.resources))
-                    scheduleRefresh()
-                })
-                .build()
-            SingletonImageLoader.get(context).enqueue(req)
-        }
+        load(url, refresh = true)
         return null
+    }
+
+    /** Loads images ahead of time (the channel's emotes, its badges) so messages show them straight away. */
+    fun prefetch(urls: Collection<String>) {
+        urls.forEach { if (images.get(it) == null) load(it, refresh = false) }
+    }
+
+    private fun load(url: String, refresh: Boolean) {
+        if (!pending.add(url)) return
+        val req = ImageRequest.Builder(context)
+            .data(url)
+            .size(coil3.size.Size(coil3.size.Dimension.Undefined, coil3.size.Dimension(decodeHeight)))
+            .target(
+                onSuccess = { image ->
+                    images.put(url, image.asDrawable(context.resources))
+                    pending.remove(url)
+                    if (refresh) scheduleRefresh()
+                },
+                // Let a later message try again rather than leaving the name as text for good.
+                onError = { pending.remove(url) },
+            )
+            .build()
+        SingletonImageLoader.get(context).enqueue(req)
     }
 
     private fun subscriberBadgeUrl(months: Int): String? =
@@ -213,7 +233,7 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
             val first = lm?.findFirstVisibleItemPosition() ?: 0
             val last = lm?.findLastVisibleItemPosition() ?: (messages.size - 1)
             if (first >= 0 && last >= first) notifyItemRangeChanged(first, last - first + 1)
-        }, 250)
+        }, 120)
     }
 
     private fun parseColor(c: String?): Int = try {

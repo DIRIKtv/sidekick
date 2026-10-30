@@ -19,6 +19,14 @@ class MainActivity : FragmentActivity() {
     private var lastBack = 0L
     /** The page the app opens on (Settings → Start-up page); Back returns there before exiting. */
     private var home = 0
+    private val liveListener: () -> Unit = { showLiveCount() }
+    /** Keeps the live count beside Following fresh while the main screen is up. */
+    private val liveTick = object : Runnable {
+        override fun run() {
+            lifecycleScope.launch { runCatching { com.diriktv.sidekick.data.Follows.liveNow(this@MainActivity, maxAgeMs = 90_000) } }
+            content.postDelayed(this, 120_000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_Sidekick) // swap out the launch screen
@@ -101,6 +109,29 @@ class MainActivity : FragmentActivity() {
                 if (!isFinishing && hasWindowFocus()) UpdateFlow(this@MainActivity, release).show()
             }
         }, 2500)
+    }
+
+    /** A red count of live followed channels on the Following heart (nothing when none are). */
+    private fun showLiveCount() {
+        val n = com.diriktv.sidekick.data.Follows.liveCount
+        val heart = getDrawable(R.drawable.ic_heart)!!.mutate()
+        val icon = if (n > 0) BadgedIcon(heart, if (n > 99) "99+" else n.toString(), getColor(R.color.live_red),
+            AppFonts.get(this, AppFonts.Weight.BOLD)) else heart
+        navItems[1].setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null)
+        navItems[1].contentDescription = if (n > 0) "Following, $n live" else "Following"
+    }
+
+    override fun onStart() {
+        super.onStart()
+        com.diriktv.sidekick.data.Follows.liveListeners += liveListener
+        showLiveCount()
+        content.post(liveTick)
+    }
+
+    override fun onStop() {
+        com.diriktv.sidekick.data.Follows.liveListeners -= liveListener
+        content.removeCallbacks(liveTick)
+        super.onStop()
     }
 
     override fun onResume() {

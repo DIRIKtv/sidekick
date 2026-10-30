@@ -64,6 +64,7 @@ internal class ChatController(private val act: PlayerActivity) {
 
     fun connect(c: ChannelInfo) {
         loadEmotes(c)
+        prefetchEmotes(c)
         if (c.chatroomId == 0 || client != null || connecting) return
         connecting = true
         act.lifecycleScope.launch {
@@ -90,11 +91,29 @@ internal class ChatController(private val act: PlayerActivity) {
         }
         if (emotesFor == c.userId && !force) return
         emotesFor = c.userId
-        act.lifecycleScope.launch { adapter.thirdPartyEmotes = SevenTv.emotes(c.userId) }
+        act.lifecycleScope.launch {
+            adapter.thirdPartyEmotes = SevenTv.emotes(c.userId)
+            // Most channels have a modest 7TV set; warm it too (a huge one is left to load as used).
+            if (adapter.thirdPartyEmotes.size <= 300) adapter.prefetch(adapter.thirdPartyEmotes.values)
+        }
     }
 
     fun setSubscriberBadges(c: ChannelInfo) {
-        if (adapter.subscriberBadges.isEmpty()) adapter.subscriberBadges = c.subscriberBadges
+        if (adapter.subscriberBadges.isEmpty()) {
+            adapter.subscriberBadges = c.subscriberBadges
+            adapter.prefetch(c.subscriberBadges.map { it.second })
+        }
+    }
+
+    private var prefetchedFor: String? = null
+
+    /** Warms the image cache with the channel's Kick emotes so busy chat isn't waiting on each one. */
+    private fun prefetchEmotes(c: ChannelInfo) {
+        if (prefetchedFor == c.slug) return
+        prefetchedFor = c.slug
+        act.lifecycleScope.launch {
+            runCatching { KickApi.emoteUrls(c.slug) }.getOrNull()?.let { adapter.prefetch(it) }
+        }
     }
 
     fun setTimestamps(on: Boolean) {
@@ -113,6 +132,7 @@ internal class ChatController(private val act: PlayerActivity) {
         client = null
         connecting = false
         emotesFor = -1
+        prefetchedFor = null
         adapter.clear()
         adapter.subscriberBadges = emptyList()
         adapter.thirdPartyEmotes = emptyMap()

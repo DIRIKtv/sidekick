@@ -319,6 +319,17 @@ object KickApi {
         return SearchResults(channels, categories)
     }
 
+    /** Image URLs of the emotes chat in [slug] can use: the channel's own, then Kick's global ones and emoji. */
+    suspend fun emoteUrls(slug: String): List<String> {
+        val sets = JSONArray(get("https://kick.com/emotes/${slug.lowercase()}"))
+        return (0 until sets.length()).flatMap { i ->
+            val emotes = sets.getJSONObject(i).optJSONArray("emotes") ?: JSONArray()
+            (0 until emotes.length()).mapNotNull { j ->
+                emotes.getJSONObject(j).optInt("id").takeIf { it > 0 }?.let { "https://files.kick.com/emotes/$it/fullsize" }
+            }
+        }
+    }
+
     /** The signed-in user for [token], or null if the token isn't valid. */
     suspend fun me(token: String): Pair<String, String?>? = withContext(Dispatchers.IO) {
         val req = Request.Builder().url("https://kick.com/api/v1/user").header("Authorization", "Bearer $token").build()

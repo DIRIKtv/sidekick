@@ -103,7 +103,7 @@ internal class PlayerMenu(private val act: PlayerActivity) {
                 add(OptionSheet.Item("Chat", value = if (!act.chat.wanted) "Hidden" else if (prefs.chatMode == "side") "Beside video" else "Over video",
                     icon = R.drawable.ic_chat, submenu = true) { it.push(chatPage()) })
             }
-            add(OptionSheet.Item("Loudness equalization", sub = "Evens out quiet and loud streams",
+            add(OptionSheet.Item("Loudness equalization", sub = "Turns quiet talking up, loud moments down",
                 value = if (act.leveler.enabled) "On" else "Off", icon = R.drawable.ic_volume) {
                 prefs.loudnessEq = !prefs.loudnessEq
                 act.leveler.enabled = prefs.loudnessEq

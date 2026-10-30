@@ -88,10 +88,25 @@ object Follows {
         }.toMap()
         liveAt = System.currentTimeMillis()
         liveVersion = version
+        publishLiveCount()
         sorted()
     }
 
     private fun sorted() = live.values.sortedByDescending { it.viewers }
+
+    /** How many followed channels were live at the last check (-1 before the first one). */
+    @Volatile var liveCount = -1
+        private set
+
+    /** Called on the main thread whenever [liveCount] may have changed. */
+    val liveListeners = java.util.concurrent.CopyOnWriteArraySet<() -> Unit>()
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun publishLiveCount() {
+        liveCount = live.size
+        mainHandler.post { liveListeners.forEach { it() } }
+    }
 
     fun isFollowing(context: Context, slug: String) =
         Prefs(context).isFavorite(slug) || slug.lowercase() in accountSlugs

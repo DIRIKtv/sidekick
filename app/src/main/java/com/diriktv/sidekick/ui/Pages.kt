@@ -499,7 +499,11 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         prefs.seekStepSeconds = steps[it]
                     }
                 },
-                Setting("Loudness equalization", { "Evens out volume between quiet and loud streams" }, R.drawable.ic_volume,
+                Setting("Unfollow from the player", { "Show the heart button for channels you already follow" }, R.drawable.ic_heart_outline,
+                    { onOff(prefs.playerUnfollow) }, toggle = { prefs.playerUnfollow }) {
+                    prefs.playerUnfollow = !prefs.playerUnfollow
+                },
+                Setting("Loudness equalization", { "Turns quiet talking up and sudden loud moments down" }, R.drawable.ic_volume,
                     { onOff(prefs.loudnessEq) }, toggle = { prefs.loudnessEq }) {
                     prefs.loudnessEq = !prefs.loudnessEq
                 },

@@ -260,3 +260,46 @@ fun stableId(key: String): Long {
     }
     return h
 }
+
+/**
+ * An icon with a small count bubble on its top-right corner (live follows on the Following
+ * heart). Tint goes to the icon only, so the bubble keeps its own colors in every state.
+ */
+class BadgedIcon(
+    private val icon: android.graphics.drawable.Drawable,
+    private val count: String,
+    fill: Int,
+    tf: android.graphics.Typeface,
+) : android.graphics.drawable.Drawable() {
+    private val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = fill }
+    private val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        typeface = tf
+        textAlign = android.graphics.Paint.Align.CENTER
+    }
+    private val rect = android.graphics.RectF()
+
+    override fun draw(canvas: android.graphics.Canvas) {
+        icon.bounds = bounds
+        icon.draw(canvas)
+        val b = bounds
+        val h = b.height() * 0.62f
+        text.textSize = h * 0.72f
+        val w = maxOf(h, text.measureText(count) + h * 0.5f)
+        val right = b.right + h * 0.38f
+        val top = b.top - h * 0.3f
+        rect.set(right - w, top, right, top + h)
+        canvas.drawRoundRect(rect, h / 2, h / 2, bg)
+        canvas.drawText(count, rect.centerX(), rect.centerY() - (text.ascent() + text.descent()) / 2, text)
+    }
+
+    override fun getIntrinsicWidth() = icon.intrinsicWidth
+    override fun getIntrinsicHeight() = icon.intrinsicHeight
+    override fun isStateful() = icon.isStateful
+    override fun onStateChange(state: IntArray): Boolean = icon.setState(state).also { invalidateSelf() }
+    override fun setTintList(tint: android.content.res.ColorStateList?) = icon.setTintList(tint)
+    override fun setAlpha(alpha: Int) { icon.alpha = alpha }
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { icon.colorFilter = colorFilter }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+}

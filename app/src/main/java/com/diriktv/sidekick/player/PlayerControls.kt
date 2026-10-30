@@ -234,6 +234,10 @@ internal class PlayerControls(private val act: PlayerActivity) {
         val on = Follows.isFollowing(act, act.slug)
         btnFollow.setImageResource(if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline)
         btnFollow.isActivated = on
+        // Unless unfollowing from the player is turned on, the heart only shows for channels not yet followed.
+        val show = !on || act.prefs.playerUnfollow
+        if (!show && btnFollow.hasFocus()) btnSettings.requestFocus()
+        btnFollow.setVisible(show)
     }
 
     fun updatePlayButton() {

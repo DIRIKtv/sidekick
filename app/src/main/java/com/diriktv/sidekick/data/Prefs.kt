@@ -114,6 +114,11 @@ class Prefs(context: Context) {
         get() = sp.getInt("seek_step", 10)
         set(v) = sp.edit().putInt("seek_step", v).apply()
 
+    /** Show the heart in the player for channels already followed, so they can be unfollowed there. */
+    var playerUnfollow: Boolean
+        get() = sp.getBoolean("player_unfollow", false)
+        set(v) = sp.edit().putBoolean("player_unfollow", v).apply()
+
     /** App typeface key (see AppFonts.Font). */
     var font: String
         get() = sp.getString("font", "figtree") ?: "figtree"
