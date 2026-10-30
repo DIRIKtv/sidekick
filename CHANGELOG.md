@@ -3,6 +3,11 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.6.3 · October 30, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Easier to read:** the description under a selected setting or menu item is darker and slightly bolder on the green highlight
+
 ## 1.6.2 · October 30, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
