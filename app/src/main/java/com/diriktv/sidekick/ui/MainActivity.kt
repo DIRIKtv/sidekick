@@ -40,6 +40,7 @@ class MainActivity : FragmentActivity() {
             .map { findViewById(it) }
         content.leftExit = { navItems.getOrNull(active) }
         indicator = findViewById(R.id.navIndicator)
+        findViewById<View>(R.id.nav).background = SoftEdgeBackground(this)
 
         navItems.forEachIndexed { i, item ->
             item.setOnFocusChangeListener { _, has ->

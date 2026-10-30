@@ -422,6 +422,7 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         orientation = LinearLayout.VERTICAL
         setPadding(act.dp(30), act.dp(4), act.dp(14), act.dp(30))
     }
+    private val sectionIndicator = NavIndicator(act)
     private val container = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(act.dp(14), act.dp(4), act.dp(36), act.dp(40))
@@ -440,7 +441,11 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         })
         addView(LinearLayout(act).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(sectionList, LinearLayout.LayoutParams(act.dp(220), LinearLayout.LayoutParams.MATCH_PARENT))
+            // The same gliding highlight as the side menu, behind the section names.
+            addView(android.widget.FrameLayout(act).apply {
+                addView(sectionIndicator, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+                addView(sectionList, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+            }, LinearLayout.LayoutParams(act.dp(220), LinearLayout.LayoutParams.MATCH_PARENT))
             addView(scroll, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
     }
@@ -672,7 +677,16 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             font(AppFonts.Weight.MEDIUM)
             setCompoundDrawablesRelativeWithIntrinsicBounds(sec.icon, 0, 0, 0)
             compoundDrawablePadding = act.dp(12)
-            setOnFocusChangeListener { _, has -> if (has && current != i) select(i) }
+            background = null
+            setOnFocusChangeListener { v, has ->
+                if (has) {
+                    sectionIndicator.moveTo(v, focused = true)
+                    if (current != i) select(i)
+                } else {
+                    // Focus went to the settings on the right (or the side menu): rest on the open section.
+                    v.post { if (sectionViews.none { it.isFocused }) sectionIndicator.moveTo(sectionViews[current], focused = false) }
+                }
+            }
             setOnClickListener { focusFirstRow() }
             setOnKeyListener { _, keyCode, event ->
                 if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
@@ -696,6 +710,7 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         current = i
         lastSection = i
         sectionViews.forEachIndexed { idx, v -> v.isActivated = idx == i }
+        sectionViews[i].let { v -> v.post { if (!v.isFocused && sectionViews.none { it.isFocused }) sectionIndicator.moveTo(v, focused = false, animate = false) } }
         rows = sections[i].rows()
         container.removeAllViews()
         rows.forEach { container.addView(container.inflate(R.layout.item_setting)) }

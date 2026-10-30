@@ -25,12 +25,19 @@ class NavIndicator @JvmOverloads constructor(context: Context, attrs: AttributeS
 
     private var top = -1f
     private var itemHeight = 0f
+    private var itemLeft = 0f
+    private var itemRight = -1f
     private var color = restingColor
     private var anim: ValueAnimator? = null
 
     /** Moves to [item] (a sibling of this view's sibling list, laid out in the same parent). */
     fun moveTo(item: View, focused: Boolean, animate: Boolean = true) {
         val toTop = item.top.toFloat()
+        // Items may sit inside a padded list laid over this view: line up with them sideways too.
+        val parent = item.parent as? View
+        val offsetX = if (parent != null && parent !== this.parent) parent.left.toFloat() else 0f
+        itemLeft = offsetX + item.left
+        itemRight = offsetX + item.right
         val toColor = if (focused) focusedColor else restingColor
         itemHeight = item.height.toFloat()
         anim?.cancel()
@@ -65,7 +72,7 @@ class NavIndicator @JvmOverloads constructor(context: Context, attrs: AttributeS
     override fun onDraw(canvas: Canvas) {
         if (top < 0 || itemHeight <= 0f) return
         paint.color = color
-        rect.set(0f, top, width.toFloat(), top + itemHeight)
+        rect.set(itemLeft, top, if (itemRight > itemLeft) itemRight else width.toFloat(), top + itemHeight)
         canvas.drawRoundRect(rect, radius, radius, paint)
     }
 }

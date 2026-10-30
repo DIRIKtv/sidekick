@@ -368,3 +368,36 @@ object FocusGlow {
         return null
     }
 }
+
+/**
+ * The side menu's background: its own shade, easing into the page over the last [fadeDp] on a
+ * smooth curve (many stops, dithered) so there's no visible seam or band where they meet.
+ */
+class SoftEdgeBackground(context: Context, private val fadeDp: Int = 64) : android.graphics.drawable.Drawable() {
+    private val from = context.getColor(com.diriktv.sidekick.R.color.surface)
+    private val to = context.getColor(com.diriktv.sidekick.R.color.bg)
+    private val fade = context.dp(fadeDp).toFloat()
+    private val paint = android.graphics.Paint().apply { isDither = true }
+
+    override fun onBoundsChange(bounds: android.graphics.Rect) {
+        val start = (bounds.width() - fade).coerceAtLeast(0f)
+        val n = 12
+        val colors = IntArray(n + 1)
+        val stops = FloatArray(n + 1)
+        val argb = android.animation.ArgbEvaluator()
+        for (i in 0..n) {
+            val t = i / n.toFloat()
+            val eased = t * t * (3 - 2 * t) // smoothstep: no hard start or end to the fade
+            colors[i] = argb.evaluate(eased, from, to) as Int
+            stops[i] = t
+        }
+        paint.shader = android.graphics.LinearGradient(bounds.left + start, 0f, bounds.right.toFloat(), 0f,
+            colors, stops, android.graphics.Shader.TileMode.CLAMP)
+    }
+
+    override fun draw(canvas: android.graphics.Canvas) = canvas.drawRect(bounds, paint)
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = android.graphics.PixelFormat.OPAQUE
+}

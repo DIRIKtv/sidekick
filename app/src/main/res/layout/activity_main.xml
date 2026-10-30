@@ -7,13 +7,12 @@
 
     <LinearLayout
         android:id="@+id/nav"
-        android:layout_width="166dp"
+        android:layout_width="176dp"
         android:layout_height="match_parent"
-        android:background="@drawable/bg_nav"
         android:orientation="vertical"
         android:paddingStart="12dp"
         android:paddingTop="24dp"
-        android:paddingEnd="28dp"
+        android:paddingEnd="38dp"
         android:paddingBottom="20dp">
 
         <ImageView

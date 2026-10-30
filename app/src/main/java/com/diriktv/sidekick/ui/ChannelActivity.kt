@@ -131,6 +131,8 @@ class ChannelActivity : FragmentActivity() {
             setVisible(c.isLive)
             setOnClickListener { Nav.watchLive(this@ChannelActivity, c.slug) }
             focusZoom(1.05f)
+            // It sits flush with the page's left edge: grow to the right so its rounded end isn't cut off.
+            addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> v.pivotX = 0f; v.pivotY = v.height / 2f }
         }
         val fav = v.findViewById<TextView>(R.id.btnFav)
         fun updateFav() {
