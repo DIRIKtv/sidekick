@@ -320,16 +320,32 @@ object KickApi {
         return SearchResults(channels, categories)
     }
 
-    /** Image URLs of the emotes chat in [slug] can use: the channel's own, then Kick's global ones and emoji. */
-    suspend fun emoteUrls(slug: String): List<String> {
+    /** A Kick emote; [set] is "channel", "global" or "emoji". */
+    data class Emote(val id: Int, val name: String, val subsOnly: Boolean, val set: String) {
+        val url get() = "https://files.kick.com/emotes/$id/fullsize"
+    }
+
+    /** The emotes chat in [slug] can use: the channel's own, then Kick's global ones and emoji. */
+    suspend fun emotes(slug: String): List<Emote> {
         val sets = JSONArray(get("https://kick.com/emotes/${slug.lowercase()}"))
         return (0 until sets.length()).flatMap { i ->
-            val emotes = sets.getJSONObject(i).optJSONArray("emotes") ?: JSONArray()
+            val s = sets.getJSONObject(i)
+            val set = when {
+                s.has("slug") -> "channel"
+                s.optString("name").equals("Emojis", true) -> "emoji"
+                else -> "global"
+            }
+            val emotes = s.optJSONArray("emotes") ?: JSONArray()
             (0 until emotes.length()).mapNotNull { j ->
-                emotes.getJSONObject(j).optInt("id").takeIf { it > 0 }?.let { "https://files.kick.com/emotes/$it/fullsize" }
+                val e = emotes.getJSONObject(j)
+                val id = e.optInt("id")
+                if (id > 0) Emote(id, e.optString("name"), e.optBoolean("subscribers_only"), set) else null
             }
         }
     }
+
+    /** Image URLs of the emotes chat in [slug] can use. */
+    suspend fun emoteUrls(slug: String): List<String> = emotes(slug).map { it.url }
 
     /** Sends [text] to a chatroom as the signed-in account. Returns null on success, else why it failed. */
     suspend fun sendChat(chatroomId: Int, text: String): String? = withContext(Dispatchers.IO) {

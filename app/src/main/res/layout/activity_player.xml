@@ -240,12 +240,17 @@
                     android:layout_marginTop="6dp"
                     android:clipChildren="false">
 
-                    <!-- Left: live status / jump to live -->
+                    <!-- Left: live status / jump to live, and the streamer's channel -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="start|center_vertical"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
                     <TextView
                         android:id="@+id/btnLive"
                         android:layout_width="wrap_content"
                         android:layout_height="40dp"
-                        android:layout_gravity="start|center_vertical"
                         android:background="@drawable/bg_live_pill"
                         android:focusable="true"
                         android:fontFamily="sans-serif-black"
@@ -255,6 +260,9 @@
                         android:paddingEnd="18dp"
                         android:textColor="@color/on_focus_primary"
                         android:textSize="14sp" />
+
+                    <ImageButton android:id="@+id/btnProfile" style="@style/CtrlButton" android:layout_marginStart="10dp" android:contentDescription="Go to channel" android:src="@drawable/ic_person" />
+                    </LinearLayout>
 
                     <!-- Center: transport -->
                     <LinearLayout

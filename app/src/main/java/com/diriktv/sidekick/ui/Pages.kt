@@ -23,11 +23,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Shared plumbing for a page that is a single grid with a status line. */
-abstract class GridPage(protected val act: FragmentActivity, layout: Int, spanCount: Int) : MainPage {
+abstract class GridPage(
+    protected val act: FragmentActivity,
+    layout: Int,
+    spanCount: Int,
+    /** Shape of the outlines shown while it loads. */
+    cardRatio: Float = 9f / 16f,
+    captions: Boolean = true,
+) : MainPage {
     override val view: View = android.view.LayoutInflater.from(act).inflate(layout, null)
     protected val list: RecyclerView = view.findViewById(R.id.list)
     protected val status: TextView = view.findViewById(R.id.status)
-    protected val progress: View = view.findViewById(R.id.progress)
+    protected val progress: View = view.findViewById<View>(R.id.progress).replaceWithSkeleton(spanCount, cardRatio, captions)
     protected val adapter = GridAdapter(
         onClick = { Nav.onCardClick(act, it) },
         onLongClick = { Nav.onCardLongClick(act, it) },
@@ -104,7 +111,7 @@ class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4
     }
 }
 
-class BrowsePage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 7) {
+class BrowsePage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 7, cardRatio = 4f / 3f, captions = false) {
     private val prefs = Prefs(act)
     private var page = 1
     private var done = false
@@ -211,6 +218,7 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
                 }
             }
         }
+        adapter.cascade = true
         list.adapter = adapter
         list.itemAnimator = null
         buildKeyboard()
@@ -633,6 +641,10 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             listOf(
                 Setting("Font", { "The typeface used across the app" }, R.drawable.ic_font,
                     { AppFonts.current(act).label }) { fontMenu() },
+                Setting("Page transitions", { "Pages slide in from the direction you move in the side menu" }, R.drawable.ic_layout,
+                    { onOff(prefs.pageTransitions) }, toggle = { prefs.pageTransitions }) {
+                    prefs.pageTransitions = !prefs.pageTransitions
+                },
             )
         },
         Section("App", R.drawable.ic_tv) {

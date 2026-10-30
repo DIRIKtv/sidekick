@@ -154,7 +154,8 @@ internal class ChatController(private val act: PlayerActivity) {
                 channelId = c.id,
                 onRaid = { act.onRaid(it) },
             ).also { it.connect() }
-            PhoneChat.target = PhoneChat.Target(c.slug, c.username, c.avatar, c.chatroomId)
+            PhoneChat.target = PhoneChat.Target(c.slug, c.username, c.avatar, c.chatroomId, c.subscriberBadges)
+            PhoneChat.sevenTv = adapter.thirdPartyEmotes
         }
     }
 
@@ -169,6 +170,7 @@ internal class ChatController(private val act: PlayerActivity) {
         emotesFor = c.userId
         act.lifecycleScope.launch {
             adapter.thirdPartyEmotes = SevenTv.emotes(c.userId)
+            if (act.mode != PlayerActivity.Mode.VOD) PhoneChat.sevenTv = adapter.thirdPartyEmotes
             // Most channels have a modest 7TV set; warm it too (a huge one is left to load as used).
             if (adapter.thirdPartyEmotes.size <= 300) adapter.prefetch(adapter.thirdPartyEmotes.values)
         }

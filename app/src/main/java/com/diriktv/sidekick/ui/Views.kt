@@ -153,6 +153,33 @@ class LetterAvatar(context: Context, name: String) : android.graphics.drawable.D
     }
 }
 
+/**
+ * A slow drift: the image eases in from its normal size to a little larger over [durationMs],
+ * towards a corner that changes with [seed], so a banner never sits completely still.
+ */
+fun View.kenBurns(seed: Int, durationMs: Long = 14_000) {
+    animate().cancel()
+    scaleX = 1f
+    scaleY = 1f
+    if (context.motionOff()) return
+    post {
+        pivotX = if (seed % 2 == 0) width * 0.25f else width * 0.75f
+        pivotY = if (seed % 3 == 0) height * 0.3f else height * 0.65f
+        animate().scaleX(1.09f).scaleY(1.09f).setDuration(durationMs)
+            .setInterpolator(android.view.animation.LinearInterpolator()).start()
+    }
+}
+
+/** Puts loading outlines where this spinner sits (same parent, filling it) and returns them. */
+fun View.replaceWithSkeleton(columns: Int, ratio: Float = 9f / 16f, captions: Boolean = true): View {
+    val parent = parent as ViewGroup
+    val i = parent.indexOfChild(this)
+    parent.removeView(this)
+    val s = SkeletonView(context, columns, ratio, captions).apply { visibility = this@replaceWithSkeleton.visibility }
+    parent.addView(s, i, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    return s
+}
+
 fun View.setVisible(visible: Boolean) {
     visibility = if (visible) View.VISIBLE else View.GONE
 }
@@ -270,6 +297,8 @@ class BadgedIcon(
     private val count: String,
     fill: Int,
     tf: android.graphics.Typeface,
+    /** Just a small dot, no number. */
+    private val dot: Boolean = false,
 ) : android.graphics.drawable.Drawable() {
     private val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = fill }
     private val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
@@ -283,14 +312,14 @@ class BadgedIcon(
         icon.bounds = bounds
         icon.draw(canvas)
         val b = bounds
-        val h = b.height() * 0.62f
+        val h = b.height() * (if (dot) 0.34f else 0.62f)
         text.textSize = h * 0.72f
         val w = maxOf(h, text.measureText(count) + h * 0.5f)
-        val right = b.right + h * 0.38f
-        val top = b.top - h * 0.3f
+        val right = b.right + h * (if (dot) 0.15f else 0.38f)
+        val top = b.top - h * (if (dot) 0.05f else 0.3f)
         rect.set(right - w, top, right, top + h)
         canvas.drawRoundRect(rect, h / 2, h / 2, bg)
-        canvas.drawText(count, rect.centerX(), rect.centerY() - (text.ascent() + text.descent()) / 2, text)
+        if (!dot) canvas.drawText(count, rect.centerX(), rect.centerY() - (text.ascent() + text.descent()) / 2, text)
     }
 
     override fun getIntrinsicWidth() = icon.intrinsicWidth
@@ -302,4 +331,40 @@ class BadgedIcon(
     override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { icon.colorFilter = colorFilter }
     @Deprecated("Deprecated in Java")
     override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+}
+
+/**
+ * The focused card's outline glows gently in and out so it's easy to find from across the room.
+ * Only one card has focus at a time, so one animator serves them all.
+ */
+object FocusGlow {
+    private var target: View? = null
+    private val pulse = android.animation.ValueAnimator.ofInt(255, 120).apply {
+        duration = 1100
+        repeatMode = android.animation.ValueAnimator.REVERSE
+        repeatCount = android.animation.ValueAnimator.INFINITE
+        interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+        addUpdateListener { a -> target?.foreground?.alpha = a.animatedValue as Int }
+    }
+
+    /** [card] gained or lost focus; the glow runs on the view inside it that draws the outline. */
+    fun onFocus(card: View, focused: Boolean) {
+        val outline = findOutline(card) ?: return
+        if (focused) {
+            if (outline.context.motionOff()) return
+            target?.foreground?.alpha = 255
+            target = outline
+            pulse.start()
+        } else if (target === outline) {
+            pulse.cancel()
+            outline.foreground?.alpha = 255
+            target = null
+        }
+    }
+
+    private fun findOutline(v: View): View? {
+        if (v.foreground != null) return v
+        if (v is ViewGroup) for (i in 0 until v.childCount) findOutline(v.getChildAt(i))?.let { return it }
+        return null
+    }
 }

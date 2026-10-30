@@ -128,7 +128,13 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
             elevation = act.dp(12).toFloat()
             isFocusable = false
         }
-        v.addView(ImageView(act).apply { loadAvatar(s.avatar, s.username) }, LinearLayout.LayoutParams(act.dp(44), act.dp(44)).apply { marginEnd = act.dp(12) })
+        // The avatar sends out a few green rings as the alert arrives, like a beacon.
+        v.clipChildren = false
+        v.clipToPadding = false
+        val avatar = FrameLayout(act).apply { clipChildren = false }
+        avatar.addView(PulseRing(act), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        avatar.addView(ImageView(act).apply { loadAvatar(s.avatar, s.username) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        v.addView(avatar, LinearLayout.LayoutParams(act.dp(44), act.dp(44)).apply { marginEnd = act.dp(14) })
         val texts = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
         texts.addView(TextView(act).apply {
             text = "●  JUST WENT LIVE"
@@ -231,4 +237,31 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
     }
 
     // endregion
+}
+
+/** Green rings spreading from behind an avatar, three times over, then still. */
+private class PulseRing(context: android.content.Context) : android.view.View(context) {
+    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = context.dp(2).toFloat()
+        color = context.getColor(R.color.kick_green)
+    }
+    private val born = android.os.SystemClock.uptimeMillis()
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        if (context.motionOff()) return
+        val age = android.os.SystemClock.uptimeMillis() - born - 250
+        if (age < 0) { postInvalidateOnAnimation(); return }
+        val r0 = width / 2f
+        var running = false
+        for (i in 0 until 3) {
+            val t = (age - i * 420L) / 900f
+            if (t < 0f) { running = true; continue }
+            if (t > 1f) continue
+            running = true
+            paint.alpha = (220 * (1 - t)).toInt()
+            canvas.drawCircle(width / 2f, height / 2f, r0 + context.dp(16) * (1 - (1 - t) * (1 - t)), paint)
+        }
+        if (running) postInvalidateOnAnimation()
+    }
 }

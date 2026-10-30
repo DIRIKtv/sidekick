@@ -139,7 +139,7 @@ class ChannelActivity : FragmentActivity() {
             fav.setCompoundDrawablesRelativeWithIntrinsicBounds(if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline, 0, 0, 0)
         }
         fun toggle() = lifecycleScope.launch {
-            Follows.toggle(this@ChannelActivity, c.slug, c.username, c.avatar)
+            if (Follows.toggle(this@ChannelActivity, c.slug, c.username, c.avatar)) Burst.at(fav)
             updateFav()
         }
         updateFav()

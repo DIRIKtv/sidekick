@@ -37,6 +37,9 @@ object Updater {
     /** Set when the app comes to the foreground; the main screen runs the check and clears it. */
     @Volatile var openedPending = true
 
+    /** A newer version found by the last check (and not skipped), shown as a dot on Settings. */
+    @Volatile var available: Release? = null
+
     data class Release(val version: String, val notes: String, val apkUrl: String, val sizeBytes: Long)
 
     /**
@@ -79,7 +82,7 @@ object Updater {
         if (now - sp.getLong("update_checked", 0) < gap) return null
         val release = runCatching { checkNow() }.getOrNull()
         sp.edit().putLong("update_checked", now).apply()
-        return release?.takeIf { it.version != sp.getString("update_skipped", null) }
+        return release?.takeIf { it.version != sp.getString("update_skipped", null) }.also { available = it }
     }
 
     fun skip(context: Context, version: String) {

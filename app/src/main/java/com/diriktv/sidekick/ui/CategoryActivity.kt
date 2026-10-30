@@ -35,7 +35,7 @@ class CategoryActivity : FragmentActivity() {
         categoryId = intent.getIntExtra(EXTRA_ID, 0)
         list = findViewById(R.id.list)
         status = findViewById(R.id.status)
-        progress = findViewById(R.id.progress)
+        progress = findViewById<View>(R.id.progress).replaceWithSkeleton(4)
         list.setPadding(dp(32), dp(24), dp(32), dp(40))
         adapter = GridAdapter(
             onClick = { Nav.onCardClick(this, it) },

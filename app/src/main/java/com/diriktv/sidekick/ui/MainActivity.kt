@@ -39,10 +39,16 @@ class MainActivity : FragmentActivity() {
         navItems = listOf(R.id.navHome, R.id.navFollowing, R.id.navBrowse, R.id.navSearch, R.id.navSettings)
             .map { findViewById(it) }
         content.leftExit = { navItems.getOrNull(active) }
+        indicator = findViewById(R.id.navIndicator)
 
         navItems.forEachIndexed { i, item ->
             item.setOnFocusChangeListener { _, has ->
-                if (!has) return@setOnFocusChangeListener
+                if (!has) {
+                    // Focus left the menu: the highlight settles back on the page that's open.
+                    item.post { if (navItems.none { it.isFocused }) indicator.moveTo(navItems[active], focused = false) }
+                    return@setOnFocusChangeListener
+                }
+                indicator.moveTo(item, focused = true)
                 // Only a key press moves between pages. Focus also lands here when a focused card
                 // disappears (a list refreshing); that mustn't switch pages, so put it back.
                 if (i == active || SystemClock.uptimeMillis() - lastKeyAt < 600) show(i)
@@ -80,18 +86,60 @@ class MainActivity : FragmentActivity() {
 
     private fun show(i: Int) {
         if (i == active) return
+        val from = active
         active = i
+        if (navItems.none { it.isFocused }) navItems[i].post { indicator.moveTo(navItems[i], focused = navItems[i].isFocused, animate = from >= 0) }
         navItems.forEachIndexed { idx, v -> v.isActivated = idx == i }
         val p = page(i)
         content.removeAllViews()
         (p.view.parent as? ViewGroup)?.removeView(p.view)
         content.addView(p.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         p.view.animate().cancel()
-        p.view.alpha = 0f
-        p.view.translationX = dp(16).toFloat()
-        p.view.animate().alpha(1f).translationX(0f).setDuration(200)
-            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        // The page comes in from the direction you moved in the menu: down the menu, it rises
+        // from below; up the menu, it drops in from above.
+        if (from >= 0 && com.diriktv.sidekick.data.Prefs(this).pageTransitions && !motionOff()) {
+            val dir = if (i > from) 1 else -1
+            p.view.alpha = 0f
+            p.view.translationY = dir * dp(36).toFloat()
+            p.view.translationX = 0f
+            p.view.animate().alpha(1f).translationY(0f).setDuration(280)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        } else {
+            p.view.alpha = 1f
+            p.view.translationY = 0f
+        }
         p.onShown()
+    }
+
+    private lateinit var indicator: NavIndicator
+    private val clockTick = object : Runnable {
+        override fun run() {
+            val now = java.util.Date()
+            findViewById<TextView>(R.id.navClock).text = android.text.format.DateFormat.getTimeFormat(this@MainActivity).format(now)
+            findViewById<TextView>(R.id.navDate).text = java.text.SimpleDateFormat("EEE, MMM d", java.util.Locale.getDefault()).format(now)
+            content.postDelayed(this, 60_000 - System.currentTimeMillis() % 60_000 + 200)
+        }
+    }
+
+    /** The account at the bottom of the menu: avatar and name, or a nudge to sign in. */
+    private fun showAccount() {
+        val prefs = com.diriktv.sidekick.data.Prefs(this)
+        val name = prefs.accountName?.takeIf { com.diriktv.sidekick.data.Follows.signedIn }
+        findViewById<TextView>(R.id.navName).text = name ?: "Not signed in"
+        findViewById<android.widget.ImageView>(R.id.navAvatar).apply {
+            if (name != null) { imageTintList = null; loadAvatar(prefs.accountAvatar, name) }
+            else { setImageResource(R.drawable.ic_account); imageTintList = getColorStateList(R.color.text_secondary) }
+        }
+    }
+
+    /** A dot on Settings while a new version is waiting. */
+    private fun showUpdateDot() {
+        val icon = getDrawable(R.drawable.ic_tune)!!.mutate()
+        val waiting = com.diriktv.sidekick.data.Updater.available != null
+        navItems[4].setCompoundDrawablesRelativeWithIntrinsicBounds(
+            if (waiting) BadgedIcon(icon, "", getColor(R.color.kick_green), AppFonts.get(this, AppFonts.Weight.BOLD), dot = true) else icon,
+            null, null, null,
+        )
     }
 
     private var curtain: LaunchCurtain? = null
@@ -125,6 +173,8 @@ class MainActivity : FragmentActivity() {
         c.reveal(android.graphics.Rect(loc[0], loc[1], loc[0] + logo.width, loc[1] + logo.height)) { logo.alpha = 1f }
         if (motionOff()) return
         val ease = android.view.animation.DecelerateInterpolator(2f)
+        indicator.alpha = 0f
+        indicator.animate().alpha(1f).setStartDelay(300L + active * 55L).setDuration(380).start()
         navItems.forEachIndexed { i, v ->
             v.alpha = 0f
             v.translationX = -dp(28).toFloat()
@@ -152,7 +202,9 @@ class MainActivity : FragmentActivity() {
         com.diriktv.sidekick.data.Updater.openedPending = false
         content.postDelayed({
             lifecycleScope.launch {
-                val release = com.diriktv.sidekick.data.Updater.checkIfDue(this@MainActivity) ?: return@launch
+                val release = com.diriktv.sidekick.data.Updater.checkIfDue(this@MainActivity)
+                showUpdateDot()
+                if (release == null) return@launch
                 if (!isFinishing && hasWindowFocus()) UpdateFlow(this@MainActivity, release).show()
             }
         }, 2500)
@@ -173,11 +225,15 @@ class MainActivity : FragmentActivity() {
         com.diriktv.sidekick.data.Follows.liveListeners += liveListener
         showLiveCount()
         content.post(liveTick)
+        content.post(clockTick)
+        showAccount()
+        showUpdateDot()
     }
 
     override fun onStop() {
         com.diriktv.sidekick.data.Follows.liveListeners -= liveListener
         content.removeCallbacks(liveTick)
+        content.removeCallbacks(clockTick)
         super.onStop()
     }
 

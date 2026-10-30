@@ -60,6 +60,10 @@ class GridAdapter(
 ) : RecyclerView.Adapter<GridAdapter.VH>() {
 
     val items = mutableListOf<GridItem>()
+
+    /** New results cascade in one after another (Search) instead of the whole list fading up. */
+    var cascade = false
+    private var cascadeAt = 0L
     private var recycler: RecyclerView? = null
 
     init {
@@ -82,8 +86,9 @@ class GridAdapter(
         val wasEmpty = items.isEmpty()
         items.clear()
         items.addAll(list)
+        if (cascade) cascadeAt = android.os.SystemClock.uptimeMillis()
         notifyDataSetChanged()
-        if (wasEmpty && list.isNotEmpty()) revealList()
+        if (wasEmpty && list.isNotEmpty() && !cascade) revealList()
     }
 
     /** Swap in new contents of the same shape without the reveal animation (keeps focus in place). */
@@ -152,6 +157,7 @@ class GridAdapter(
         if (viewType != 0 && viewType != 4) v.focusZoom(if (viewType == 2) 1.08f else 1.05f) { has ->
             // Live cards carry their channel in the tag (set when bound) for the focus preview.
             (v.getTag(R.id.thumbFrame) as? String)?.let { FocusPreview.onFocus(v, it, has) }
+            FocusGlow.onFocus(v, has)
         }
         return VH(v)
     }
@@ -160,6 +166,16 @@ class GridAdapter(
         val item = items[position]
         val v = holder.itemView
         v.setTag(R.id.thumbFrame, (item as? GridItem.Stream)?.stream?.slug)
+        if (cascade && android.os.SystemClock.uptimeMillis() - cascadeAt < 400 && !v.context.motionOff()) {
+            v.alpha = 0f
+            v.translationY = v.resources.displayMetrics.density * 18
+            v.animate().alpha(1f).translationY(0f).setStartDelay(minOf(position * 35L, 420L)).setDuration(260)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        } else if (v.alpha < 1f && cascade) {
+            v.animate().cancel()
+            v.alpha = 1f
+            v.translationY = 0f
+        }
         if (onNearEnd != null && position >= items.size - 6) v.post { onNearEnd.invoke() }
         if (item !is GridItem.Header) {
             v.setOnClickListener { onClick(item) }

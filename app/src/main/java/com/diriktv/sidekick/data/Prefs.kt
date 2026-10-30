@@ -134,6 +134,11 @@ class Prefs(context: Context) {
         get() = sp.getInt("preview_delay", 2)
         set(v) = sp.edit().putInt("preview_delay", v).apply()
 
+    /** Pages slide in from the direction you moved in the side menu. */
+    var pageTransitions: Boolean
+        get() = sp.getBoolean("page_transitions", true)
+        set(v) = sp.edit().putBoolean("page_transitions", v).apply()
+
     /** App typeface key (see AppFonts.Font). */
     var font: String
         get() = sp.getString("font", "figtree") ?: "figtree"

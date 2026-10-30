@@ -36,7 +36,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
     private val prefs = Prefs(act)
     private val list = RecyclerView(act)
     private val status = TextView(act)
-    private val progress = TraceLoader(act)
+    private val progress = SkeletonView(act)
     private val rows = mutableListOf<Row>()
     private var lastLoad = 0L
     private var loadedVersion = -1
@@ -67,7 +67,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
     override val view: View = FrameLayout(act).apply {
         addView(list, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(status, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.CENTER))
-        addView(progress, FrameLayout.LayoutParams(act.dp(48), act.dp(48), android.view.Gravity.CENTER))
+        addView(progress, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     private inner class Row(
@@ -211,7 +211,10 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             v.findViewById(R.id.heroName), v.findViewById(R.id.heroTitle),
             v.findViewById(R.id.heroMeta), v.findViewById(R.id.heroAvatar),
         )
-        v.findViewById<ImageView>(R.id.heroImage).loadThumb(Img.thumb(s.thumbnail, 1080))
+        v.findViewById<ImageView>(R.id.heroImage).apply {
+            loadThumb(Img.thumb(s.thumbnail, 1080))
+            kenBurns(heroIndex)
+        }
         v.findViewById<ImageView>(R.id.heroAvatar).loadAvatar(s.avatar, s.username)
         v.findViewById<TextView>(R.id.heroName).text = s.username
         v.findViewById<TextView>(R.id.heroTitle).text = s.title

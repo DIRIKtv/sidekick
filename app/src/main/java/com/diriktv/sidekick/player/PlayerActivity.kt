@@ -505,6 +505,7 @@ class PlayerActivity : FragmentActivity() {
     private fun setFollow(c: ChannelInfo) {
         lifecycleScope.launch {
             val on = Follows.toggle(this@PlayerActivity, c.slug, c.username, c.avatar)
+            if (on) com.diriktv.sidekick.ui.Burst.at(controls.btnFollow)
             controls.updateFollowButton()
             controls.updateTooltip(controls.btnFollow)
             controls.flashOsd(if (on) "Following ${c.username}" else "Unfollowed ${c.username}", if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline)
@@ -568,13 +569,24 @@ class PlayerActivity : FragmentActivity() {
 
     internal fun isAtLive() = mode == Mode.LIVE && timelineMax() - (pendingSeek ?: timelinePos()) < LIVE_EDGE_MS
 
+    /** Where the current run of seek presses started, for the ripple's running total. */
+    private var seekFrom = 0L
+    private val seekRipple by lazy {
+        SeekRipple(this).also {
+            findViewById<android.widget.FrameLayout>(R.id.stage).addView(it,
+                android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+    }
+
     internal fun queueSeek(delta: Long, repeatCount: Int) {
         if (player.playbackState == Player.STATE_IDLE && mode != Mode.VOD) return
         val accel = 1 + repeatCount / 6
+        if (pendingSeek == null) seekFrom = timelinePos()
         val base = pendingSeek ?: timelinePos()
         val max = timelineMax()
         val target = (base + delta * accel).coerceIn(0L, max.coerceAtLeast(0L))
         pendingSeek = target
+        seekRipple.pulse(if (delta < 0) -1 else 1, target - seekFrom, atLive = mode != Mode.VOD && delta > 0 && max - target < LIVE_EDGE_MS)
         val icon = if (delta < 0) R.drawable.ic_replay else R.drawable.ic_forward
         val label = if (mode == Mode.VOD) {
             "${Fmt.time(target)} / ${Fmt.time(max)}"

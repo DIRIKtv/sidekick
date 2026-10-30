@@ -36,11 +36,12 @@ object LocalHttp {
         return Request(parts.getOrNull(0).orEmpty(), target.substringBefore('?'), query, String(bodyBytes, 0, read, Charsets.UTF_8))
     }
 
-    fun respond(s: Socket, code: Int, type: String, body: String) {
-        val bytes = body.toByteArray(Charsets.UTF_8)
+    fun respond(s: Socket, code: Int, type: String, body: String) = respondBytes(s, code, type, body.toByteArray(Charsets.UTF_8))
+
+    fun respondBytes(s: Socket, code: Int, type: String, bytes: ByteArray, cache: Boolean = false) {
         val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; else -> "Not Found" }
         val head = "HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
-            "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
+            "Cache-Control: ${if (cache) "max-age=86400" else "no-store"}\r\nConnection: close\r\n\r\n"
         s.getOutputStream().apply { write(head.toByteArray()); write(bytes); flush() }
     }
 
