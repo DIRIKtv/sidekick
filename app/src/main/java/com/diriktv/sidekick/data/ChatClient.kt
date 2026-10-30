@@ -23,7 +23,58 @@ data class ChatMessage(
     val receivedAt: Long = System.currentTimeMillis(),
 )
 
-/** Read-only Kick chat over Pusher. Callbacks are delivered on the main thread. */
+/** Where a raid (or host) sent the channel's viewers. */
+data class RaidTarget(val slug: String, val username: String, val viewers: Int)
+
+/**
+ * A chat message in the shape Kick uses both live (ChatMessageEvent) and in a past broadcast's
+ * chat history; null for anything without a sender.
+ */
+fun parseChatMessage(data: JSONObject): ChatMessage? {
+    val sender = data.optJSONObject("sender") ?: return null
+    val identity = sender.optJSONObject("identity")
+    val badges = mutableListOf<ChatBadge>()
+    identity?.optJSONArray("badges")?.let { arr ->
+        for (i in 0 until arr.length()) {
+            val b = arr.getJSONObject(i)
+            badges += ChatBadge(b.optString("type"), b.optInt("count"))
+        }
+    }
+    val images = mutableListOf<String>()
+    identity?.optJSONArray("badges_v2")?.let { arr ->
+        for (i in 0 until arr.length()) {
+            val b = arr.getJSONObject(i)
+            if (b.optBoolean("selected")) b.optStringOrNull("image_url")?.let { images += it }
+        }
+    }
+    return ChatMessage(
+        id = data.optString("id"),
+        username = sender.optString("username"),
+        color = identity?.optStringOrNull("color"),
+        content = data.optString("content"),
+        badges = badges,
+        badgeImages = images,
+        receivedAt = com.diriktv.sidekick.ui.Fmt.parseUtc(data.optStringOrNull("created_at")) ?: System.currentTimeMillis(),
+    )
+}
+
+/**
+ * Where a ChatMoveToSupportedChannelEvent sends viewers. Kick has shipped a couple of shapes for
+ * it, so this looks for the target in each of them.
+ */
+fun parseRaid(data: JSONObject): RaidTarget? {
+    val hosted = data.optJSONObject("hosted")
+    val slug = hosted?.optStringOrNull("slug") ?: data.optStringOrNull("slug")
+        ?: hosted?.optStringOrNull("username")?.lowercase() ?: return null
+    val username = hosted?.optStringOrNull("username") ?: slug
+    val viewers = hosted?.optInt("viewers_count", hosted.optInt("number_viewers")) ?: 0
+    return RaidTarget(slug, username, viewers)
+}
+
+/**
+ * Read-only Kick chat over Pusher. Also listens on the channel itself so it hears raids.
+ * Callbacks are delivered on the main thread.
+ */
 class ChatClient(
     private val chatroomId: Int,
     private val appKey: String,
@@ -31,6 +82,8 @@ class ChatClient(
     private val onMessage: (ChatMessage) -> Unit,
     private val onDeleted: (String) -> Unit,
     private val onStatus: (String) -> Unit,
+    private val channelId: Int = 0,
+    private val onRaid: (RaidTarget) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var socket: WebSocket? = null
@@ -65,40 +118,26 @@ class ChatClient(
         when (msg.optString("event")) {
             "pusher:connection_established" -> {
                 retries = 0
-                val sub = JSONObject()
-                    .put("event", "pusher:subscribe")
-                    .put("data", JSONObject().put("auth", "").put("channel", "chatrooms.$chatroomId.v2"))
-                ws.send(sub.toString())
+                val channels = listOf("chatrooms.$chatroomId.v2") + (if (channelId > 0) listOf("channel.$channelId") else emptyList())
+                for (name in channels) {
+                    val sub = JSONObject()
+                        .put("event", "pusher:subscribe")
+                        .put("data", JSONObject().put("auth", "").put("channel", name))
+                    ws.send(sub.toString())
+                }
             }
-            "pusher_internal:subscription_succeeded" -> main.post { onStatus("Connected to chat") }
+            "pusher_internal:subscription_succeeded" ->
+                if (msg.optString("channel").startsWith("chatrooms.")) main.post { onStatus("Connected to chat") }
             "pusher:ping" -> ws.send("""{"event":"pusher:pong","data":{}}""")
             "App\\Events\\ChatMessageEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
-                val sender = data.optJSONObject("sender") ?: return
-                val identity = sender.optJSONObject("identity")
-                val badges = mutableListOf<ChatBadge>()
-                identity?.optJSONArray("badges")?.let { arr ->
-                    for (i in 0 until arr.length()) {
-                        val b = arr.getJSONObject(i)
-                        badges += ChatBadge(b.optString("type"), b.optInt("count"))
-                    }
-                }
-                val images = mutableListOf<String>()
-                identity?.optJSONArray("badges_v2")?.let { arr ->
-                    for (i in 0 until arr.length()) {
-                        val b = arr.getJSONObject(i)
-                        if (b.optBoolean("selected")) b.optStringOrNull("image_url")?.let { images += it }
-                    }
-                }
-                val chat = ChatMessage(
-                    id = data.optString("id"),
-                    username = sender.optString("username"),
-                    color = identity?.optStringOrNull("color"),
-                    content = data.optString("content"),
-                    badges = badges,
-                    badgeImages = images,
-                )
+                val chat = parseChatMessage(data)?.copy(receivedAt = System.currentTimeMillis()) ?: return
                 main.post { onMessage(chat) }
+            }
+            "App\\Events\\ChatMoveToSupportedChannelEvent" -> {
+                val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
+                val target = parseRaid(data) ?: return
+                main.post { onRaid(target) }
             }
             "App\\Events\\MessageDeletedEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }

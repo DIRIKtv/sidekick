@@ -1,8 +1,6 @@
 package com.diriktv.sidekick.ui
 
 import android.annotation.SuppressLint
-import android.graphics.Bitmap
-import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -20,9 +18,6 @@ import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.EncodeHintType
-import com.google.zxing.qrcode.QRCodeWriter
 import com.diriktv.sidekick.R
 import com.diriktv.sidekick.data.Follows
 import com.diriktv.sidekick.data.KickApi
@@ -173,12 +168,6 @@ class LoginActivity : FragmentActivity() {
         qr.setImageBitmap(qrBitmap(url, dp(200)))
         urlText.text = url.substringBefore("/?")
         setStatus("loading", "Loading kick.com…")
-    }
-
-    private fun qrBitmap(text: String, size: Int): Bitmap {
-        val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 1))
-        val pixels = IntArray(size * size) { i -> if (matrix[i % size, i / size]) Color.BLACK else Color.WHITE }
-        return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
     }
 
     /** Updates both the phone page and the TV's status line. */

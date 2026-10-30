@@ -404,6 +404,9 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         /** The section shown last, so returning to Settings (or a font change restarting it) lands there again. */
         private var lastSection = 0
         private val START_PAGES = listOf("Home", "Following", "Browse", "Search")
+        private val RAID_MODES = listOf("ask" to "Ask", "auto" to "Go automatically", "off" to "Ignore")
+        private val PREVIEW_DELAYS = listOf(0, 1, 2, 3)
+        private fun previewLabel(s: Int) = if (s == 0) "Off" else "After ${s}s"
     }
 
     private val prefs = Prefs(act)
@@ -499,6 +502,12 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         prefs.seekStepSeconds = steps[it]
                     }
                 },
+                Setting("Raids", { "When the channel you're watching sends its viewers to another" }, R.drawable.ic_raid,
+                    { RAID_MODES.firstOrNull { it.first == prefs.raidMode }?.second ?: "Ask" }) {
+                    choose("Raids", "When the channel you're watching raids another one.", RAID_MODES.map { it.second },
+                        subs = listOf("Offer to go with them", "Go with them straight away", "Stay on the channel"),
+                        selected = RAID_MODES.indexOfFirst { it.first == prefs.raidMode }) { prefs.raidMode = RAID_MODES[it].first }
+                },
                 Setting("Unfollow from the player", { "Show the heart button for channels you already follow" }, R.drawable.ic_heart_outline,
                     { onOff(prefs.playerUnfollow) }, toggle = { prefs.playerUnfollow }) {
                     prefs.playerUnfollow = !prefs.playerUnfollow
@@ -559,6 +568,10 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                     { onOff(prefs.chatHideCommands) }, toggle = { prefs.chatHideCommands }) {
                     prefs.chatHideCommands = !prefs.chatHideCommands
                 },
+                Setting("Chat replay", { "Play a past broadcast's chat alongside it" }, R.drawable.ic_history,
+                    { onOff(prefs.chatReplay) }, toggle = { prefs.chatReplay }) {
+                    prefs.chatReplay = !prefs.chatReplay
+                },
                 Setting("Calm busy chats", { "Steady pace that stays readable; skips some messages when chat floods" }, R.drawable.ic_calm,
                     { onOff(prefs.chatCalm) }, toggle = { prefs.chatCalm }) {
                     prefs.chatCalm = !prefs.chatCalm
@@ -567,6 +580,13 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         },
         Section("Browsing", R.drawable.ic_compass) {
             listOf(
+                Setting("Previews", { "Play a muted preview when a live stream stays in focus" }, R.drawable.ic_preview,
+                    { previewLabel(prefs.previewDelay) }) {
+                    choose("Previews", "A live card plays a muted preview once it's been in focus this long.",
+                        PREVIEW_DELAYS.map { previewLabel(it) }, selected = PREVIEW_DELAYS.indexOf(prefs.previewDelay).coerceAtLeast(0)) {
+                        prefs.previewDelay = PREVIEW_DELAYS[it]
+                    }
+                },
                 Setting("Start-up page", { "Where the app opens" }, R.drawable.ic_startup,
                     { START_PAGES.getOrElse(prefs.startPage) { "Home" } }) {
                     choose("Start-up page", "The page Sidekick opens on.", START_PAGES, selected = prefs.startPage) {

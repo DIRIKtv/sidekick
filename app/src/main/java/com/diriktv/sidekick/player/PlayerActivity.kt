@@ -192,7 +192,7 @@ class PlayerActivity : FragmentActivity() {
 
     private fun begin() {
         mode = if (vodUrl != null) Mode.VOD else Mode.LIVE
-        chat.wanted = mode == Mode.LIVE && prefs.chatEnabled
+        chat.wanted = prefs.chatEnabled
         controls.updateMode()
         chat.applyLayout()
         controls.bindHeader()
@@ -423,7 +423,13 @@ class PlayerActivity : FragmentActivity() {
             lastChannelRefresh = System.currentTimeMillis()
             if (c.isLive && streamStartMs == 0L) streamStartMs = Fmt.parseUtc(c.liveStartTime) ?: 0L
             onChannel(c)
-            if (mode == Mode.VOD) recordVodHistory()
+            if (mode == Mode.VOD) {
+                recordVodHistory()
+                if (!isClip) Fmt.parseUtc(intent.getStringExtra(EXTRA_VOD_DATE))?.let {
+                    chat.startReplay(c, it)
+                    updateModeUi()
+                }
+            }
             if (connectChat && c.isLive) chat.connect(c)
             if (!c.isLive && mode == Mode.LIVE && !player.isPlaying) {
                 showError("The stream has ended.", "Open channel") {
@@ -458,6 +464,31 @@ class PlayerActivity : FragmentActivity() {
                 category = intent.getStringExtra(EXTRA_VOD_CATEGORY),
             )
         )
+    }
+
+    /** The channel being watched raided [t]: follow it there, ask, or ignore it (Settings → Playback). */
+    internal fun onRaid(t: com.diriktv.sidekick.data.RaidTarget) {
+        if (mode == Mode.VOD || t.slug.equals(slug, true) || isFinishing) return
+        val from = channel?.username ?: slug
+        when (prefs.raidMode) {
+            "off" -> return
+            "auto" -> {
+                controls.flashOsd("$from raided ${t.username}, taking you there", R.drawable.ic_raid)
+                ui.postDelayed({ if (!isFinishing) Nav.watchLive(this, t.slug) }, 2_500)
+            }
+            else -> {
+                controls.cancelHide()
+                val viewers = if (t.viewers > 0) " with ${Fmt.count(t.viewers)} viewers" else ""
+                val sheet = OptionSheet(this)
+                sheet.show(OptionSheet.Page("Raid!", eyebrow = from,
+                    subtitle = "$from is sending their viewers to ${t.username}$viewers.") {
+                    listOf(
+                        OptionSheet.Item("Go to ${t.username}", icon = R.drawable.ic_raid) { it.dismiss(); Nav.watchLive(this, t.slug) },
+                        OptionSheet.Item("Stay here", icon = R.drawable.ic_close) { it.dismiss() },
+                    )
+                })
+            }
+        }
     }
 
     internal fun toggleFollow() {
@@ -696,6 +727,7 @@ class PlayerActivity : FragmentActivity() {
             lastChannelRefresh = now
             loadChannel(connectChat = true)
         }
+        if (mode == Mode.VOD) chat.tickReplay(player.currentPosition)
         if (mode == Mode.VOD && now - lastPositionSave > 10_000) {
             lastPositionSave = now
             saveVodPosition()

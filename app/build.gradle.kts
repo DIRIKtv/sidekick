@@ -90,6 +90,8 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
 
     testImplementation("junit:junit:4.13.2")
+    // The real org.json, so tests can parse Kick's JSON (android.jar only has stubs).
+    testImplementation("org.json:json:20240303")
 }
 
 // ./gradlew dist  ->  dist/Sidekick-<version>.apk, ready to sideload.

@@ -11,6 +11,7 @@ import com.diriktv.sidekick.data.ChannelInfo
 import com.diriktv.sidekick.data.ChatClient
 import com.diriktv.sidekick.data.ChatMessage
 import com.diriktv.sidekick.data.KickApi
+import com.diriktv.sidekick.data.PhoneChat
 import com.diriktv.sidekick.data.SevenTv
 import com.diriktv.sidekick.ui.dp
 import com.diriktv.sidekick.ui.setVisible
@@ -59,8 +60,80 @@ internal class ChatController(private val act: PlayerActivity) {
         list.itemAnimator = slideIn
     }
 
-    /** Chat is on screen in this mode (not a past broadcast, not in picture-in-picture). */
-    val shown get() = wanted && act.mode != PlayerActivity.Mode.VOD && !act.inPip
+    /** Chat is on screen: live, or replaying a past broadcast's chat, and not in picture-in-picture. */
+    val shown get() = wanted && (act.mode != PlayerActivity.Mode.VOD || canReplay) && !act.inPip
+
+    // region replay: a past broadcast's chat, played back in step with the video
+
+    private var replayChannelId = 0
+    /** Wall-clock time (UTC) of the video's first frame; 0 when there's nothing to replay. */
+    private var replayStart = 0L
+    /** Video position of the next five-second window of chat to fetch. */
+    private var replayNext = 0L
+    private var replayLastPos = -1L
+    private var replayFetching = false
+    private var replayRetryAt = 0L
+    private var replayGen = 0
+    private val replayQueue = ArrayDeque<Pair<Long, ChatMessage>>()
+
+    /** This is a past broadcast (not a clip) whose chat Kick kept. */
+    val canReplay get() = act.mode == PlayerActivity.Mode.VOD && !act.isClip && replayStart > 0 && prefs.chatReplay
+
+    fun startReplay(c: ChannelInfo, startUtcMs: Long) {
+        if (replayStart == startUtcMs && replayChannelId == c.id) return
+        replayChannelId = c.id
+        replayStart = startUtcMs
+        replayLastPos = -1
+        loadEmotes(c)
+        prefetchEmotes(c)
+    }
+
+    /** Called a couple of times a second with the video position. */
+    fun tickReplay(pos: Long) {
+        if (!canReplay || !shown) return
+        // First run, or a jump (seek, or chat reopened after a while): start over a little before here.
+        if (replayLastPos < 0 || pos < replayLastPos - 3_000 || pos > replayLastPos + 20_000) {
+            replayGen++
+            replayQueue.clear()
+            replayFetching = false
+            adapter.clear()
+            replayNext = (pos - 15_000).coerceAtLeast(0) / 5_000 * 5_000
+        }
+        replayLastPos = pos
+        while (true) {
+            val next = replayQueue.firstOrNull() ?: break
+            if (next.first > pos) break
+            replayQueue.removeFirst()
+            if (filter.allows(next.second)) add(next.second)
+        }
+        if (!replayFetching && replayNext <= pos + 10_000 && System.currentTimeMillis() >= replayRetryAt) fetchReplay()
+    }
+
+    private fun fetchReplay() {
+        val gen = replayGen
+        val from = replayNext
+        replayFetching = true
+        act.lifecycleScope.launch {
+            val msgs = runCatching { KickApi.chatHistory(replayChannelId, replayStart + from) }.getOrNull()
+            if (gen != replayGen) return@launch
+            replayFetching = false
+            if (msgs == null) {
+                replayRetryAt = System.currentTimeMillis() + 5_000
+                return@launch
+            }
+            replayQueue.addAll(msgs.map { (it.receivedAt - replayStart) to it }.sortedBy { it.first })
+            replayNext = from + 5_000
+        }
+    }
+
+    private fun stopReplay() {
+        replayGen++
+        replayStart = 0
+        replayQueue.clear()
+        replayFetching = false
+    }
+
+    // endregion
 
     fun connect(c: ChannelInfo) {
         loadEmotes(c)
@@ -78,7 +151,10 @@ internal class ChatController(private val act: PlayerActivity) {
                 onMessage = { receive(it) },
                 onDeleted = { id -> backlog.removeAll { it.id == id }; adapter.remove(id) },
                 onStatus = { add(ChatMessage("sys-${System.nanoTime()}", "", null, it, emptyList(), isSystem = true)) },
+                channelId = c.id,
+                onRaid = { act.onRaid(it) },
             ).also { it.connect() }
+            PhoneChat.target = PhoneChat.Target(c.slug, c.username, c.avatar, c.chatroomId)
         }
     }
 
@@ -133,6 +209,7 @@ internal class ChatController(private val act: PlayerActivity) {
         connecting = false
         emotesFor = -1
         prefetchedFor = null
+        stopReplay()
         adapter.clear()
         adapter.subscriberBadges = emptyList()
         adapter.thirdPartyEmotes = emptyMap()
@@ -143,6 +220,7 @@ internal class ChatController(private val act: PlayerActivity) {
         backlog.clear()
         draining = false
         client?.close()
+        if (PhoneChat.target?.slug.equals(act.slug, true)) PhoneChat.target = null
     }
 
     private fun receive(m: ChatMessage) {
@@ -177,6 +255,7 @@ internal class ChatController(private val act: PlayerActivity) {
         val wantAnimator = if (busy) null else slideIn
         if (list.itemAnimator !== wantAnimator) list.itemAnimator = wantAnimator
         adapter.add(m)
+        if (act.mode != PlayerActivity.Mode.VOD) PhoneChat.record(m)
         if (panel.visibility == View.VISIBLE) list.scrollToPosition(adapter.itemCount - 1)
     }
 

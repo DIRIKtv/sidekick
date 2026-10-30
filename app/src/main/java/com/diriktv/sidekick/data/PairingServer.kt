@@ -3,8 +3,6 @@ package com.diriktv.sidekick.data
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
-import java.net.Inet4Address
-import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
@@ -62,33 +60,11 @@ class PairingServer(
     fun url(): String? = lanAddress()?.let { "http://$it:$port/?k=$secret" }
 
     private fun handle(client: Socket) = client.use { s ->
-        s.soTimeout = 10_000
-        val input = s.getInputStream()
-        // Read headers byte by byte up to the blank line, then exactly Content-Length bytes of body.
-        val head = StringBuilder()
-        while (!head.endsWith("\r\n\r\n")) {
-            val b = input.read()
-            if (b < 0 || head.length > 16_000) return
-            head.append(b.toChar())
-        }
-        val lines = head.split("\r\n")
-        val parts = lines.first().split(' ')
-        val method = parts.getOrNull(0).orEmpty()
-        val target = parts.getOrNull(1) ?: "/"
-        val length = lines.firstOrNull { it.startsWith("Content-Length:", true) }
-            ?.substringAfter(':')?.trim()?.toIntOrNull() ?: 0
-        val bodyBytes = ByteArray(length.coerceIn(0, 10_000))
-        var read = 0
-        while (read < bodyBytes.size) {
-            val n = input.read(bodyBytes, read, bodyBytes.size - read)
-            if (n < 0) break
-            read += n
-        }
-        val body = String(bodyBytes, 0, read, Charsets.UTF_8)
-
-        val path = target.substringBefore('?')
-        val key = target.substringAfter("k=", "").substringBefore('&')
-        if (key != secret) return respond(s, 403, "text/plain", "This link has expired. Scan the QR code on your TV again.")
+        val req = LocalHttp.read(s) ?: return
+        val method = req.method
+        val path = req.path
+        val body = req.body
+        if (req.query["k"] != secret) return respond(s, 403, "text/plain", "This link has expired. Scan the QR code on your TV again.")
 
         when {
             method == "GET" && path == "/" -> respond(s, 200, "text/html; charset=utf-8", PAGE)
@@ -111,22 +87,10 @@ class PairingServer(
         }
     }
 
-    private fun respond(s: Socket, code: Int, type: String, body: String) {
-        val bytes = body.toByteArray(Charsets.UTF_8)
-        val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; else -> "Not Found" }
-        val head = "HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
-            "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
-        s.getOutputStream().apply { write(head.toByteArray()); write(bytes); flush() }
-    }
+    private fun respond(s: Socket, code: Int, type: String, body: String) = LocalHttp.respond(s, code, type, body)
 
     companion object {
-        fun lanAddress(): String? = runCatching {
-            NetworkInterface.getNetworkInterfaces().toList()
-                .filter { it.isUp && !it.isLoopback }
-                .flatMap { it.inetAddresses.toList() }
-                .filterIsInstance<Inet4Address>()
-                .firstOrNull { it.isSiteLocalAddress }?.hostAddress
-        }.getOrNull()
+        fun lanAddress(): String? = LocalHttp.lanAddress()
 
         // The fields float their label into the outline (Bencho's label input), the button folds
         // into a slim bar while the TV works and opens back out as "Signed in" (pay button), and

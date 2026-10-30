@@ -46,6 +46,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
     private val btnCaptions: ImageButton = act.findViewById(R.id.btnCaptions)
     val btnChat: ImageButton = act.findViewById(R.id.btnChat)
     val btnFollow: ImageButton = act.findViewById(R.id.btnFollow)
+    private val btnPhone: ImageButton = act.findViewById(R.id.btnPhone)
     private val btnSettings: ImageButton = act.findViewById(R.id.btnSettings)
 
     /** Logical controls state; the view itself may still be fading out. */
@@ -71,6 +72,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
             updateTooltip(btnChat)
         }
         btnFollow.setOnClickListener { act.toggleFollow() }
+        btnPhone.setOnClickListener { PhoneChatDialog.show(act) }
 
         seekBar.setOnKeyListener { _, keyCode, event ->
             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
@@ -90,6 +92,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
             btnCaptions to { "Captions • ${act.menu.currentCaptionLabel()}" },
             btnChat to { if (act.chat.wanted) "Hide chat" else "Show chat" },
             btnFollow to { if (Follows.isFollowing(act, act.slug)) "Unfollow" else "Follow" },
+            btnPhone to { "Chat from your phone" },
             btnSettings to { "Settings" },
         )
         tooltipLabels.keys.forEach { v ->
@@ -202,7 +205,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         val small = act.dp(if (on) 42 else 48)
         val gap = act.dp(if (on) 6 else 10)
         val actions = act.findViewById<View>(R.id.actions)
-        listOf(btnRewind, btnForward, btnChat, btnFollow, btnSettings, btnCaptions).forEach { b ->
+        listOf(btnRewind, btnForward, btnChat, btnPhone, btnFollow, btnSettings, btnCaptions).forEach { b ->
             b.layoutParams = (b.layoutParams as LinearLayout.LayoutParams).apply {
                 width = small; height = small
                 if (b.parent === actions) marginStart = gap
@@ -225,7 +228,8 @@ internal class PlayerControls(private val act: PlayerActivity) {
     fun updateMode() {
         val isVod = act.mode == PlayerActivity.Mode.VOD
         btnLive.setVisible(!isVod)
-        btnChat.setVisible(!isVod)
+        btnChat.setVisible(!isVod || act.chat.canReplay)
+        btnPhone.setVisible(!isVod)
         updateFollowButton()
         updateProgress()
     }

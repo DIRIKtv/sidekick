@@ -45,7 +45,8 @@ object KickApi {
      */
     private fun needsAuth(url: HttpUrl): Boolean {
         val path = url.encodedPath
-        return path.startsWith("/api/v2/channels/followed") || path.endsWith("/follow") || path == "/api/v1/user"
+        return path.startsWith("/api/v2/channels/followed") || path.endsWith("/follow") || path == "/api/v1/user" ||
+            path.startsWith("/api/v2/messages/send/")
     }
 
     val http: OkHttpClient = OkHttpClient.Builder()
@@ -328,6 +329,38 @@ object KickApi {
                 emotes.getJSONObject(j).optInt("id").takeIf { it > 0 }?.let { "https://files.kick.com/emotes/$it/fullsize" }
             }
         }
+    }
+
+    /** Sends [text] to a chatroom as the signed-in account. Returns null on success, else why it failed. */
+    suspend fun sendChat(chatroomId: Int, text: String): String? = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("content", text).put("type", "message").toString()
+            .toRequestBody("application/json".toMediaType())
+        val req = Request.Builder().url("https://kick.com/api/v2/messages/send/$chatroomId").post(body).build()
+        runCatching {
+            http.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) return@use null
+                val msg = runCatching { JSONObject(resp.body?.string().orEmpty()).let { o ->
+                    o.optJSONObject("status")?.optStringOrNull("message") ?: o.optStringOrNull("message") } }.getOrNull()
+                when {
+                    msg != null -> msg
+                    resp.code == 401 || resp.code == 403 -> "Kick didn't accept the message. You may need to sign in again, or chat may be followers- or subscribers-only."
+                    resp.code == 429 -> "You're sending messages too fast."
+                    else -> "Couldn't send (HTTP ${resp.code})."
+                }
+            }
+        }.getOrElse { "Couldn't reach Kick: ${it.message}" }
+    }
+
+    /**
+     * About five seconds of a past broadcast's chat, starting at [startMs] (UTC). Kick keeps
+     * chat for its recordings, so it can be replayed alongside the video.
+     */
+    suspend fun chatHistory(channelId: Int, startMs: Long): List<ChatMessage> {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        val json = JSONObject(get("https://kick.com/api/v2/channels/$channelId/messages?start_time=${fmt.format(java.util.Date(startMs))}"))
+        val arr = json.optJSONObject("data")?.optJSONArray("messages") ?: JSONArray()
+        return (0 until arr.length()).mapNotNull { parseChatMessage(arr.getJSONObject(it)) }
     }
 
     /** The signed-in user for [token], or null if the token isn't valid. */

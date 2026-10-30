@@ -280,6 +280,7 @@
 
                         <ImageButton android:id="@+id/btnCaptions" style="@style/CtrlButton" android:layout_marginStart="10dp" android:contentDescription="Captions" android:src="@drawable/ic_cc" android:visibility="gone" />
                         <ImageButton android:id="@+id/btnChat" style="@style/CtrlButton" android:layout_marginStart="10dp" android:contentDescription="Chat" android:src="@drawable/ic_chat" />
+                        <ImageButton android:id="@+id/btnPhone" style="@style/CtrlButton" android:layout_marginStart="10dp" android:contentDescription="Chat from your phone" android:src="@drawable/ic_phone" />
                         <ImageButton android:id="@+id/btnFollow" style="@style/CtrlButton" android:layout_marginStart="10dp" android:contentDescription="Follow" android:src="@drawable/ic_heart_outline" />
                         <ImageButton android:id="@+id/btnSettings" style="@style/CtrlButton" android:layout_marginStart="10dp" android:contentDescription="Settings" android:src="@drawable/ic_settings" />
                     </LinearLayout>

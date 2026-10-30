@@ -119,6 +119,21 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("player_unfollow", false)
         set(v) = sp.edit().putBoolean("player_unfollow", v).apply()
 
+    /** Play a past broadcast's chat alongside it. */
+    var chatReplay: Boolean
+        get() = sp.getBoolean("chat_replay", true)
+        set(v) = sp.edit().putBoolean("chat_replay", v).apply()
+
+    /** When a channel you're watching raids another: "ask", "auto" or "off". */
+    var raidMode: String
+        get() = sp.getString("raid_mode", "ask") ?: "ask"
+        set(v) = sp.edit().putString("raid_mode", v).apply()
+
+    /** Seconds a card waits in focus before playing a preview; 0 turns previews off. */
+    var previewDelay: Int
+        get() = sp.getInt("preview_delay", 2)
+        set(v) = sp.edit().putInt("preview_delay", v).apply()
+
     /** App typeface key (see AppFonts.Font). */
     var font: String
         get() = sp.getString("font", "figtree") ?: "figtree"

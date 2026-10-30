@@ -149,13 +149,17 @@ class GridAdapter(
         v.findViewById<View?>(R.id.thumbFrame)?.clipToOutline = true
         (v.findViewById<View?>(R.id.banner)?.parent as? View)?.clipToOutline = true
         v.findViewById<AspectImageView?>(R.id.avatar)?.ratio = 1f
-        if (viewType != 0 && viewType != 4) v.focusZoom(if (viewType == 2) 1.08f else 1.05f)
+        if (viewType != 0 && viewType != 4) v.focusZoom(if (viewType == 2) 1.08f else 1.05f) { has ->
+            // Live cards carry their channel in the tag (set when bound) for the focus preview.
+            (v.getTag(R.id.thumbFrame) as? String)?.let { FocusPreview.onFocus(v, it, has) }
+        }
         return VH(v)
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val item = items[position]
         val v = holder.itemView
+        v.setTag(R.id.thumbFrame, (item as? GridItem.Stream)?.stream?.slug)
         if (onNearEnd != null && position >= items.size - 6) v.post { onNearEnd.invoke() }
         if (item !is GridItem.Header) {
             v.setOnClickListener { onClick(item) }
@@ -226,6 +230,10 @@ class GridAdapter(
             }
             is GridItem.Query -> v.findViewById<TextView>(R.id.name).text = item.text
         }
+    }
+
+    override fun onViewRecycled(holder: VH) {
+        FocusPreview.onFocus(holder.itemView, "", false)
     }
 
     class VH(v: View) : RecyclerView.ViewHolder(v)
