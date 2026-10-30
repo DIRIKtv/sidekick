@@ -707,6 +707,7 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
 
     /** Shows a section's rows. Only the right side is rebuilt, so focus on the section list stays put. */
     private fun select(i: Int) {
+        val from = current
         current = i
         lastSection = i
         sectionViews.forEachIndexed { idx, v -> v.isActivated = idx == i }
@@ -726,9 +727,19 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         })
         scroll.scrollTo(0, 0)
         render()
-        container.alpha = 0f
-        container.translationX = act.dp(10).toFloat()
-        container.animate().alpha(1f).translationX(0f).setDuration(160).start()
+        // Like the side menu's pages: moving down the sections, the new one rises from below;
+        // moving up, it drops in from above (Settings → Appearance → Page transitions).
+        container.animate().cancel()
+        container.translationX = 0f
+        if (from != i && prefs.pageTransitions && !act.motionOff()) {
+            container.alpha = 0f
+            container.translationY = (if (i > from) 1 else -1) * act.dp(36).toFloat()
+            container.animate().alpha(1f).translationY(0f).setDuration(280)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        } else {
+            container.alpha = 1f
+            container.translationY = 0f
+        }
     }
 
     private fun focusFirstRow(): Boolean = container.getChildAt(0)?.requestFocus() ?: false
