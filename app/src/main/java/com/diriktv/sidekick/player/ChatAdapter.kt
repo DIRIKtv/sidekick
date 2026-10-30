@@ -46,6 +46,13 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
 
     private val wordRegex = Regex("""\S+""")
 
+    /** Prefix each message with the time it arrived. */
+    var showTimestamps = false
+
+    private val timeFormat = android.text.format.DateFormat.getTimeFormat(context)
+    private val amPm = Regex("""\s?[AaPp]\.?[Mm]\.?$""")
+    private val boldFont = com.diriktv.sidekick.ui.AppFonts.get(context, com.diriktv.sidekick.ui.AppFonts.Weight.BOLD)
+
     /** 7TV emotes (name -> image URL); words matching one are drawn as the emote. */
     var thirdPartyEmotes: Map<String, String> = emptyMap()
         set(value) { field = value; refreshVisible() }
@@ -102,6 +109,12 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
             sb.setSpan(StyleSpan(Typeface.ITALIC), 0, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             return sb
         }
+        if (showTimestamps) {
+            sb.append(timeFormat.format(java.util.Date(m.receivedAt)).replace(amPm, ""))
+            sb.setSpan(ForegroundColorSpan(0xFF80868B.toInt()), 0, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.setSpan(android.text.style.RelativeSizeSpan(0.82f), 0, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.append("  ")
+        }
         val badgeSize = (lineHeight * 0.95f).toInt().coerceAtLeast(18)
         for (b in m.badges.sortedBy { badgeIcons.keys.indexOf(it.type).let { i -> if (i < 0) 99 else i } }) {
             val drawable = if (b.type == "subscriber") {
@@ -118,7 +131,7 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
         val nameStart = sb.length
         sb.append(m.username)
         sb.setSpan(ForegroundColorSpan(parseColor(m.color)), nameStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        sb.setSpan(StyleSpan(Typeface.BOLD), nameStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(com.diriktv.sidekick.ui.BoldSpan(boldFont), nameStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         sb.append(": ")
 
         var last = 0

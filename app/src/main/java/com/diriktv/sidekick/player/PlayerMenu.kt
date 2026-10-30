@@ -6,6 +6,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import com.diriktv.sidekick.R
+import com.diriktv.sidekick.data.Prefs
 import com.diriktv.sidekick.ui.LiveAlerts
 import com.diriktv.sidekick.ui.Nav
 import com.diriktv.sidekick.ui.OptionSheet
@@ -209,8 +210,8 @@ internal class PlayerMenu(private val act: PlayerActivity) {
             OptionSheet.Item("Filters", value = filterSummary(), submenu = true) { it.push(filtersPage()) },
             OptionSheet.Item("Text size", value = "${prefs.chatTextSize}sp", submenu = true) { sheet ->
                 sheet.push(OptionSheet.Page("Chat text size") {
-                    listOf(13, 15, 17, 20).map { size ->
-                        OptionSheet.Item(listOf("Small", "Medium", "Large", "Extra large")[listOf(13, 15, 17, 20).indexOf(size)],
+                    Prefs.CHAT_TEXT_SIZES.map { (size, label) ->
+                        OptionSheet.Item(label, sub = "viewer: hi chat!", subSizeSp = size.toFloat(),
                             value = "${size}sp", checked = prefs.chatTextSize == size) { s ->
                             prefs.chatTextSize = size
                             act.chat.setTextSize(size)
@@ -218,6 +219,22 @@ internal class PlayerMenu(private val act: PlayerActivity) {
                         }
                     }
                 })
+            },
+            OptionSheet.Item("Width", value = Prefs.chatWidthLabel(prefs.chatWidth), submenu = true) { sheet ->
+                sheet.push(OptionSheet.Page("Chat width", subtitle = "How much room chat takes beside the video.") {
+                    Prefs.CHAT_WIDTHS.map { (w, label) ->
+                        OptionSheet.Item(label, checked = prefs.chatWidth == w) { s ->
+                            prefs.chatWidth = w
+                            act.chat.applyLayout(animate = true)
+                            s.back()
+                        }
+                    }
+                })
+            },
+            OptionSheet.Item("Timestamps", sub = "Show when each message arrived", value = if (prefs.chatTimestamps) "On" else "Off") {
+                prefs.chatTimestamps = !prefs.chatTimestamps
+                act.chat.setTimestamps(prefs.chatTimestamps)
+                it.refresh()
             },
         )
     }

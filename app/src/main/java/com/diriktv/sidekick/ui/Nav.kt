@@ -63,7 +63,7 @@ object Nav {
             is GridItem.Cat -> category(ctx, item.category.id, item.category.name)
             is GridItem.Vod -> watchVod(ctx, item.channelSlug, item.video)
             is GridItem.Clip -> watchClip(ctx, item.clip)
-            is GridItem.Header -> Unit
+            is GridItem.Header, is GridItem.Query -> Unit
         }
     }
 

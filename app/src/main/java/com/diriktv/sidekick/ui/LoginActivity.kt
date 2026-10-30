@@ -32,15 +32,18 @@ import org.json.JSONObject
 import java.net.URLDecoder
 
 /**
- * Signs in through kick.com itself, two ways:
- *  - scan the QR code and type the login on a phone; the TV fills it into kick.com's form
- *  - or drive the page directly with a D-pad pointer.
+ * Signs in through kick.com itself: scan the QR code and type the login on a phone, and the TV
+ * fills it into kick.com's form, which loads out of sight behind the pairing screen. ☰ brings the
+ * page forward to drive it with a D-pad pointer instead (or to pass a security check).
  * Once kick.com sets a session cookie we keep it.
  */
 class LoginActivity : FragmentActivity() {
     private lateinit var web: WebView
     private lateinit var cursor: ImageView
     private lateinit var statusText: TextView
+    private lateinit var pairPanel: android.view.View
+    /** kick.com is in front and the D-pad moves the pointer. */
+    private var webShown = false
     private val ui = Handler(Looper.getMainLooper())
     private var x = 0f
     private var y = 0f
@@ -99,11 +102,13 @@ class LoginActivity : FragmentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppFonts.install(this)
         setContentView(R.layout.activity_login)
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
         statusText = findViewById(R.id.pairStatus)
+        pairPanel = findViewById(R.id.pairPanel)
         val frame = findViewById<FrameLayout>(R.id.webFrame)
         web = WebView(this)
         web.settings.javaScriptEnabled = true
@@ -122,7 +127,7 @@ class LoginActivity : FragmentActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
 
-        cursor = ImageView(this).apply { setImageResource(R.drawable.ic_cursor) }
+        cursor = ImageView(this).apply { setImageResource(R.drawable.ic_cursor); visibility = android.view.View.INVISIBLE }
         frame.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         frame.addView(cursor, FrameLayout.LayoutParams(dp(28), dp(28)))
         frame.post {
@@ -132,8 +137,12 @@ class LoginActivity : FragmentActivity() {
         }
 
         onBackPressedDispatcher.addCallback(this) {
-            // Back leaves sign-in unless the web page itself has somewhere to go back to.
-            if (web.canGoBack() && web.url?.trimEnd('/') != "https://kick.com") web.goBack() else finish()
+            // With the page in front, Back steps back through it and then returns to the QR code.
+            when {
+                !webShown -> finish()
+                web.canGoBack() && web.url?.trimEnd('/') != "https://kick.com" -> web.goBack()
+                else -> showWeb(false)
+            }
         }
         startPairing()
         web.loadUrl("https://kick.com/")
@@ -245,7 +254,7 @@ class LoginActivity : FragmentActivity() {
                     if (pendingLogin != null) submitPending()
                     else if (state == "loading") setStatus("ready", "Scan the code and sign in on your phone.")
                     else if (state == "working" && System.currentTimeMillis() - workingSince > 20_000) {
-                        setStatus("error", "Kick may be asking for a security check on the TV. Use the remote pointer to finish it.")
+                        setStatus("error", "Kick may be asking for a security check. Press ☰ to finish it on the TV with the remote.")
                     }
                 }
             }
@@ -255,6 +264,13 @@ class LoginActivity : FragmentActivity() {
     // endregion
 
     // region pointer
+
+    private fun showWeb(show: Boolean) {
+        webShown = show
+        pairPanel.visibility = if (show) android.view.View.GONE else android.view.View.VISIBLE
+        cursor.visibility = if (show) android.view.View.VISIBLE else android.view.View.INVISIBLE
+        if (show) web.requestFocus()
+    }
 
     /** Waits for the login form to show up, then parks the pointer on its first field. */
     private fun pointAtFirstField(attempt: Int) {
@@ -298,6 +314,11 @@ class LoginActivity : FragmentActivity() {
     // Overriding Activity.dispatchKeyEvent is standard; lint trips on AndroidX's restricted override of it.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+            if (event.action == KeyEvent.ACTION_UP) showWeb(!webShown)
+            return true
+        }
+        if (!webShown) return super.dispatchKeyEvent(event)
         val step = dp(14) * (1 + (event.repeatCount / 3).coerceAtMost(4)).toFloat()
         val handled = when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> { if (event.action == KeyEvent.ACTION_DOWN) moveCursor(-step, 0f); true }

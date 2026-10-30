@@ -20,6 +20,7 @@ data class ChatMessage(
     val isSystem: Boolean = false,
     /** Image URLs of the global badges the sender chose to show (events, achievements). */
     val badgeImages: List<String> = emptyList(),
+    val receivedAt: Long = System.currentTimeMillis(),
 )
 
 /** Read-only Kick chat over Pusher. Callbacks are delivered on the main thread. */

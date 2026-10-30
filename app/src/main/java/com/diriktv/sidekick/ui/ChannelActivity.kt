@@ -49,6 +49,7 @@ class ChannelActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppFonts.install(this)
         setContentView(R.layout.activity_channel)
         prefs = Prefs(this)
         list = findViewById(R.id.list)
@@ -118,7 +119,7 @@ class ChannelActivity : FragmentActivity() {
 
     private fun bindHeader(v: View) {
         val c = channel ?: return
-        v.findViewById<ImageView>(R.id.avatar).loadAvatar(c.avatar)
+        v.findViewById<ImageView>(R.id.avatar).loadAvatar(c.avatar, c.username)
         v.findViewById<TextView>(R.id.name).text = c.username + if (c.verified) "  ✓" else ""
         v.findViewById<TextView>(R.id.followers).text = "${Fmt.count(c.followers)} followers"
         v.findViewById<TextView>(R.id.bio).apply { text = c.bio.orEmpty(); setVisible(!c.bio.isNullOrBlank()) }

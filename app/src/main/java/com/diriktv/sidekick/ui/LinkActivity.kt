@@ -25,6 +25,7 @@ class LinkActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppFonts.install(this)
         val data = intent.data
         val target = data?.pathSegments?.firstOrNull()
         val vod = if (data?.host == "vod") {

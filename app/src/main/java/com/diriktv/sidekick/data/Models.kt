@@ -80,4 +80,7 @@ data class SearchChannel(
     val verified: Boolean,
 )
 
+/** What a search finds: channels (live ones first is up to the caller) and categories. */
+data class SearchResults(val channels: List<SearchChannel>, val categories: List<Category>)
+
 data class Page<T>(val items: List<T>, val next: String?)

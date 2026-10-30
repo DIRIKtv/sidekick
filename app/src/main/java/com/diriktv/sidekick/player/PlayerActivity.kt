@@ -135,6 +135,7 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.diriktv.sidekick.ui.AppFonts.install(this)
         current?.get()?.takeIf { it !== this }?.finish()
         current = WeakReference(this)
         setContentView(R.layout.activity_player)

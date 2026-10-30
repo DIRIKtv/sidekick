@@ -91,7 +91,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                 try {
                     val page = loader(cursor)
                     val seen = adapter.items.map { it.key }.toSet()
-                    adapter.append(page.items.filter { it.key !in seen })
+                    adapter.append(page.items.filter { it.key !in seen && !prefs.isHiddenCategory(it.categoryName) })
                     cursor = page.next
                     done = page.next == null
                     if (pendingFocus && page.items.isNotEmpty()) list.post { if (focusContent()) pendingFocus = false }
@@ -164,6 +164,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         list.itemAnimator = null
         status.setTextColor(act.getColor(R.color.text_secondary))
         status.textSize = 17f
+        status.font(AppFonts.Weight.REGULAR)
     }
 
     // region hero
@@ -208,7 +209,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             v.findViewById(R.id.heroMeta), v.findViewById(R.id.heroAvatar),
         )
         v.findViewById<ImageView>(R.id.heroImage).loadThumb(Img.thumb(s.thumbnail, 1080))
-        v.findViewById<ImageView>(R.id.heroAvatar).loadAvatar(s.avatar)
+        v.findViewById<ImageView>(R.id.heroAvatar).loadAvatar(s.avatar, s.username)
         v.findViewById<TextView>(R.id.heroName).text = s.username
         v.findViewById<TextView>(R.id.heroTitle).text = s.title
         v.findViewById<TextView>(R.id.heroMeta).text = listOfNotNull(
@@ -312,7 +313,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
 
                 // Hero: live follows, or the biggest streams when none of them are on.
                 heroFromFollows = liveFollows.isNotEmpty()
-                heroItems = liveFollows.ifEmpty { top?.items?.take(6).orEmpty() }
+                heroItems = liveFollows.ifEmpty { top?.items?.filterNot { prefs.isHiddenCategory(it.category) }?.take(6).orEmpty() }
                 heroIndex = heroIndex.coerceAtMost((heroItems.size - 1).coerceAtLeast(0))
 
                 val newRows = mutableListOf<Row>()
@@ -328,7 +329,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                     val page = KickApi.clips(cursor = cursor, time = "day")
                     Page(page.items.map { GridItem.Clip(it) }, page.next)
                 }
-                for (cat in categoriesJob.await()) {
+                for (cat in categoriesJob.await().filterNot { prefs.isHiddenCategory(it.name) }) {
                     newRows += Row(cat.name) { KickApi.livestreams(cursor = it, categoryId = cat.id, language = lang).asCards() }
                 }
 

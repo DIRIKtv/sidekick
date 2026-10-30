@@ -26,6 +26,17 @@ sealed class GridItem {
     /** [channelName] set shows whose broadcast it is (rows mixing channels, like Continue watching). */
     data class Vod(val video: Video, val channelSlug: String, val progress: Float, val channelName: String? = null) : GridItem()
     data class Clip(val clip: com.diriktv.sidekick.data.Clip) : GridItem()
+    /** A recent search on the Search page. */
+    data class Query(val text: String) : GridItem()
+
+    /** The category a live stream, clip or category card belongs to (for hiding categories). */
+    val categoryName: String?
+        get() = when (this) {
+            is Stream -> stream.category
+            is Clip -> clip.category
+            is Cat -> category.name
+            else -> null
+        }
 
     /** Identity for de-duplicating pages as they load. */
     val key: String
@@ -36,6 +47,7 @@ sealed class GridItem {
             is Cat -> "k:${category.id}"
             is Vod -> "v:${video.uuid}"
             is Clip -> "p:${clip.id}"
+            is Query -> "q:${text.lowercase()}"
         }
 }
 
@@ -111,6 +123,7 @@ class GridAdapter(
         is GridItem.Stream, is GridItem.Vod, is GridItem.Clip -> 1
         is GridItem.Channel -> 2
         is GridItem.Cat -> 3
+        is GridItem.Query -> 4
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -118,6 +131,7 @@ class GridAdapter(
             0 -> R.layout.item_header
             1 -> R.layout.item_stream_card
             2 -> R.layout.item_channel_card
+            4 -> R.layout.item_query_chip
             else -> R.layout.item_category_card
         }
         val v = parent.inflate(layout)
@@ -135,7 +149,7 @@ class GridAdapter(
         v.findViewById<View?>(R.id.thumbFrame)?.clipToOutline = true
         (v.findViewById<View?>(R.id.banner)?.parent as? View)?.clipToOutline = true
         v.findViewById<AspectImageView?>(R.id.avatar)?.ratio = 1f
-        if (viewType != 0) v.focusZoom(if (viewType == 2) 1.08f else 1.05f)
+        if (viewType != 0 && viewType != 4) v.focusZoom(if (viewType == 2) 1.08f else 1.05f)
         return VH(v)
     }
 
@@ -159,7 +173,7 @@ class GridAdapter(
             is GridItem.Stream -> {
                 val s = item.stream
                 v.findViewById<ImageView>(R.id.thumb).loadThumb(Img.thumb(s.thumbnail))
-                v.findViewById<ImageView>(R.id.avatar).apply { setVisible(true); loadAvatar(s.avatar) }
+                v.findViewById<ImageView>(R.id.avatar).apply { setVisible(true); loadAvatar(s.avatar, s.username) }
                 v.findViewById<TextView>(R.id.title).text = s.title
                 v.findViewById<TextView>(R.id.channel).text = s.username
                 v.findViewById<TextView>(R.id.category).apply { text = s.category.orEmpty(); setVisible(s.category != null) }
@@ -189,7 +203,7 @@ class GridAdapter(
             is GridItem.Clip -> {
                 val c = item.clip
                 v.findViewById<ImageView>(R.id.thumb).loadThumb(c.thumbnail)
-                v.findViewById<ImageView>(R.id.avatar).apply { setVisible(true); loadAvatar(c.channelAvatar) }
+                v.findViewById<ImageView>(R.id.avatar).apply { setVisible(true); loadAvatar(c.channelAvatar, c.channelName) }
                 v.findViewById<TextView>(R.id.title).text = c.title.ifBlank { "Clip" }
                 v.findViewById<TextView>(R.id.channel).text =
                     listOf(c.channelName, "${Fmt.count(c.views)} views", Fmt.ago(c.createdAt)).filter { it.isNotEmpty() }.joinToString(" • ")
@@ -200,7 +214,7 @@ class GridAdapter(
                 v.findViewById<View>(R.id.resumeBar).setVisible(false)
             }
             is GridItem.Channel -> {
-                v.findViewById<ImageView>(R.id.avatar).loadAvatar(item.avatar)
+                v.findViewById<ImageView>(R.id.avatar).loadAvatar(item.avatar, item.username)
                 v.findViewById<TextView>(R.id.name).text = item.username
                 v.findViewById<TextView>(R.id.followers).text = item.subtitle
                 v.findViewById<View>(R.id.liveBadge).setVisible(item.isLive)
@@ -210,6 +224,7 @@ class GridAdapter(
                 v.findViewById<TextView>(R.id.name).text = item.category.name
                 v.findViewById<TextView>(R.id.viewers).text = Fmt.viewers(item.category.viewers)
             }
+            is GridItem.Query -> v.findViewById<TextView>(R.id.name).text = item.text
         }
     }
 

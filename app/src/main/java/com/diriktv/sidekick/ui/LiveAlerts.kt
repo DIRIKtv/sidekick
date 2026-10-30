@@ -128,20 +128,20 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
             elevation = act.dp(12).toFloat()
             isFocusable = false
         }
-        v.addView(ImageView(act).apply { loadAvatar(s.avatar) }, LinearLayout.LayoutParams(act.dp(44), act.dp(44)).apply { marginEnd = act.dp(12) })
+        v.addView(ImageView(act).apply { loadAvatar(s.avatar, s.username) }, LinearLayout.LayoutParams(act.dp(44), act.dp(44)).apply { marginEnd = act.dp(12) })
         val texts = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
         texts.addView(TextView(act).apply {
             text = "●  JUST WENT LIVE"
             setTextColor(act.getColor(R.color.kick_green))
             textSize = 11f
             letterSpacing = 0.08f
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            font(AppFonts.Weight.MEDIUM)
         })
         texts.addView(TextView(act).apply {
             text = if (others > 0) "${s.username} and $others more" else s.username
             setTextColor(act.getColor(R.color.text_primary))
             textSize = 17f
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            font(AppFonts.Weight.MEDIUM)
         })
         texts.addView(TextView(act).apply {
             text = listOfNotNull(s.category, s.title.takeIf { it.isNotBlank() }).joinToString(" • ")
@@ -150,11 +150,13 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             maxWidth = act.dp(300)
+            font(AppFonts.Weight.REGULAR)
         })
         texts.addView(TextView(act).apply {
             text = if (inPlayer) "☰  Settings to switch" else "▶❚❚  Play to watch"
             setTextColor(act.getColor(R.color.text_primary))
             textSize = 12f
+            font(AppFonts.Weight.REGULAR)
             setPadding(0, act.dp(6), 0, 0)
         })
         v.addView(texts)

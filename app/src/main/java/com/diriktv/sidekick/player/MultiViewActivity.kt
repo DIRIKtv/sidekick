@@ -19,6 +19,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.diriktv.sidekick.R
+import com.diriktv.sidekick.ui.AppFonts
+import com.diriktv.sidekick.ui.font
 import com.diriktv.sidekick.data.KickApi
 import com.diriktv.sidekick.data.Prefs
 import com.diriktv.sidekick.ui.Nav
@@ -61,10 +63,12 @@ class MultiViewActivity : FragmentActivity() {
             frame.addView(loader, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER))
             status.setTextColor(getColor(R.color.text_secondary))
             status.textSize = 15f
+            status.font(AppFonts.Weight.REGULAR)
             status.gravity = Gravity.CENTER
             frame.addView(status, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
             label.setTextColor(0xFFFFFFFF.toInt())
             label.textSize = 13f
+            label.font(AppFonts.Weight.MEDIUM)
             label.setBackgroundResource(R.drawable.bg_chip_dark)
             label.setPadding(dp(8), dp(4), dp(8), dp(4))
             label.compoundDrawablePadding = dp(6)
@@ -141,6 +145,7 @@ class MultiViewActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.diriktv.sidekick.ui.AppFonts.install(this)
         window.setBackgroundDrawableResource(android.R.color.black)
         grid = FrameLayout(this).apply { keepScreenOn = true; setBackgroundColor(0xFF000000.toInt()) }
         setContentView(grid)
@@ -156,6 +161,7 @@ class MultiViewActivity : FragmentActivity() {
             text = "OK  full screen     ☰  add, swap or remove     The focused stream plays sound"
             setTextColor(0xCCFFFFFF.toInt())
             textSize = 13f
+            font(AppFonts.Weight.REGULAR)
             setBackgroundResource(R.drawable.bg_osd)
             setPadding(dp(18), dp(10), dp(18), dp(10))
         }

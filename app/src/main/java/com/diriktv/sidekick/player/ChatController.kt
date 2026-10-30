@@ -28,7 +28,7 @@ internal class ChatController(private val act: PlayerActivity) {
     private val panel: View = act.findViewById(R.id.chatPanel)
     private val list: RecyclerView = act.findViewById(R.id.chatList)
     private val stage: View = act.findViewById(R.id.stage)
-    val adapter = ChatAdapter(act, prefs.chatTextSize)
+    val adapter = ChatAdapter(act, prefs.chatTextSize).apply { showTimestamps = prefs.chatTimestamps }
     private val filter = ChatFilter(prefs)
 
     private var client: ChatClient? = null
@@ -43,17 +43,20 @@ internal class ChatController(private val act: PlayerActivity) {
     private val drainNext = Runnable { drain() }
     private var animator: ValueAnimator? = null
 
+    // New messages slide in gently; changes (emotes arriving) redraw without flashing.
+    private val slideIn = androidx.recyclerview.widget.DefaultItemAnimator().apply {
+        addDuration = 140
+        moveDuration = 140
+        removeDuration = 0
+        changeDuration = 0
+        supportsChangeAnimations = false
+    }
+    private var lastAddAt = 0L
+
     init {
         list.layoutManager = LinearLayoutManager(act).apply { stackFromEnd = true }
         list.adapter = adapter
-        // New messages slide in gently; changes (emotes arriving) redraw without flashing.
-        list.itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator().apply {
-            addDuration = 140
-            moveDuration = 140
-            removeDuration = 0
-            changeDuration = 0
-            supportsChangeAnimations = false
-        }
+        list.itemAnimator = slideIn
     }
 
     /** Chat is on screen in this mode (not a past broadcast, not in picture-in-picture). */
@@ -92,6 +95,11 @@ internal class ChatController(private val act: PlayerActivity) {
 
     fun setSubscriberBadges(c: ChannelInfo) {
         if (adapter.subscriberBadges.isEmpty()) adapter.subscriberBadges = c.subscriberBadges
+    }
+
+    fun setTimestamps(on: Boolean) {
+        adapter.showTimestamps = on
+        adapter.notifyDataSetChanged()
     }
 
     fun setTextSize(sp: Int) {
@@ -141,6 +149,13 @@ internal class ChatController(private val act: PlayerActivity) {
     }
 
     private fun add(m: ChatMessage) {
+        // In a fast chat the slide-ins overlap and rows land on top of each other: only animate
+        // when messages arrive slowly enough for each one to finish.
+        val now = android.os.SystemClock.uptimeMillis()
+        val busy = now - lastAddAt < 400
+        lastAddAt = now
+        val wantAnimator = if (busy) null else slideIn
+        if (list.itemAnimator !== wantAnimator) list.itemAnimator = wantAnimator
         adapter.add(m)
         if (panel.visibility == View.VISIBLE) list.scrollToPosition(adapter.itemCount - 1)
     }
@@ -167,8 +182,10 @@ internal class ChatController(private val act: PlayerActivity) {
         if (show) list.scrollToPosition((adapter.itemCount - 1).coerceAtLeast(0))
         act.controls.setCompact(show && side)
 
+        val chatWidth = act.dp(prefs.chatWidth)
+        if (panel.layoutParams.width != chatWidth) panel.layoutParams = panel.layoutParams.apply { width = chatWidth }
         val lp = stage.layoutParams as FrameLayout.LayoutParams
-        val targetMargin = if (show && side) act.dp(300) else 0
+        val targetMargin = if (show && side) chatWidth else 0
         animator?.cancel()
         if (!animate) {
             panel.setVisible(panelVisible)
@@ -178,7 +195,7 @@ internal class ChatController(private val act: PlayerActivity) {
             stage.layoutParams = lp
             return
         }
-        val width = act.dp(300).toFloat()
+        val width = chatWidth.toFloat()
         val startMargin = lp.marginEnd
         val startShift = if (panel.visibility == View.VISIBLE) panel.translationX else width
         val endShift = if (panelVisible) 0f else width

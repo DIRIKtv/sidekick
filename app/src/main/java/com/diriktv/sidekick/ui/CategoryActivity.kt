@@ -30,6 +30,7 @@ class CategoryActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppFonts.install(this)
         setContentView(R.layout.page_grid)
         categoryId = intent.getIntExtra(EXTRA_ID, 0)
         list = findViewById(R.id.list)

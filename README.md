@@ -140,3 +140,4 @@ Release builds are signed with `keystore/sidekick-release.jks`, configured by `k
 [MIT](LICENSE) © DIRIKtv
 
 Icons from [Phosphor Icons](https://phosphoricons.com) — MIT © 2023 Phosphor Icons.
+Fonts: [Figtree](https://github.com/erikdkennedy/figtree), [Inter](https://rsms.me/inter/) and [Manrope](https://github.com/googlefonts/manrope) — SIL Open Font License 1.1 ([licenses](docs/licenses)).

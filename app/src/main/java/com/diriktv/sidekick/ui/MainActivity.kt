@@ -17,10 +17,13 @@ class MainActivity : FragmentActivity() {
     private val pages = arrayOfNulls<MainPage>(5)
     private var active = -1
     private var lastBack = 0L
+    /** The page the app opens on (Settings → Start-up page); Back returns there before exiting. */
+    private var home = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_Sidekick) // swap out the launch screen
         super.onCreate(savedInstanceState)
+        AppFonts.install(this)
         window.setBackgroundDrawableResource(R.color.bg)
         setContentView(R.layout.activity_main)
         content = findViewById(R.id.content)
@@ -45,8 +48,11 @@ class MainActivity : FragmentActivity() {
         }
         // Back via the dispatcher: Android 16+ no longer calls onBackPressed for apps targeting it.
         onBackPressedDispatcher.addCallback(this) { handleBack() }
-        show(0)
-        content.post { if (!pages[0]!!.focusContent()) navItems[0].requestFocus() }
+        home = com.diriktv.sidekick.data.Prefs(this).startPage.coerceIn(0, 3)
+        // Rebuilt after a font change: stay on the page that was open.
+        val start = savedInstanceState?.getInt("page", home) ?: home
+        show(start)
+        content.post { if (!pages[start]!!.focusContent()) navItems[start].requestFocus() }
         content.postDelayed({ (page(2) as BrowsePage).preload() }, 3000)
     }
 
@@ -72,6 +78,17 @@ class MainActivity : FragmentActivity() {
         p.view.animate().alpha(1f).translationX(0f).setDuration(200)
             .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         p.onShown()
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+        // Restoring the views puts focus back on the nav rail; send it into the page instead.
+        content.post { pages[active]?.focusContent() }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("page", active)
     }
 
     /** Each time the app is opened, look for a release (per the update setting) once Home has settled. */
@@ -101,8 +118,8 @@ class MainActivity : FragmentActivity() {
             navItems[active].requestFocus()
             return
         }
-        if (active != 0) {
-            navItems[0].requestFocus()
+        if (active != home) {
+            navItems[home].requestFocus()
             return
         }
         val now = System.currentTimeMillis()

@@ -9,6 +9,8 @@ import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import coil3.load
 import coil3.request.crossfade
+import coil3.request.error
+import coil3.request.fallback
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import java.text.SimpleDateFormat
@@ -105,10 +107,49 @@ fun ImageView.loadThumb(url: String?) {
     load(url) { crossfade(150) }
 }
 
-fun ImageView.loadAvatar(url: String?) {
+/** A round avatar; channels without a picture (or one that won't load) get their initial on a colored disc. */
+fun ImageView.loadAvatar(url: String?, name: String? = null) {
+    val letter = name?.takeIf { it.isNotBlank() }?.let { LetterAvatar(context, it) }
     load(url) {
         crossfade(150)
         transformations(CircleCropTransformation())
+        if (letter != null) {
+            error(letter)
+            fallback(letter)
+        }
+    }
+}
+
+/** A disc in a color picked from the name, with its first letter. */
+class LetterAvatar(context: Context, name: String) : android.graphics.drawable.Drawable() {
+    private val letter = name.trim().firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "?"
+    private val disc = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = COLORS[(name.lowercase().hashCode() and 0x7fffffff) % COLORS.size]
+    }
+    private val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textAlign = android.graphics.Paint.Align.CENTER
+        typeface = AppFonts.get(context, AppFonts.Weight.BOLD)
+    }
+
+    override fun draw(canvas: android.graphics.Canvas) {
+        val b = bounds
+        val r = minOf(b.width(), b.height()) / 2f
+        canvas.drawCircle(b.exactCenterX(), b.exactCenterY(), r, disc)
+        text.textSize = r * 0.95f
+        canvas.drawText(letter, b.exactCenterX(), b.exactCenterY() - (text.ascent() + text.descent()) / 2, text)
+    }
+
+    override fun setAlpha(alpha: Int) { disc.alpha = alpha; text.alpha = alpha }
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { disc.colorFilter = colorFilter }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+
+    private companion object {
+        val COLORS = intArrayOf(
+            0xFF2E7D32.toInt(), 0xFF1565C0.toInt(), 0xFF6A1B9A.toInt(), 0xFFAD1457.toInt(),
+            0xFFEF6C00.toInt(), 0xFF00838F.toInt(), 0xFF4527A0.toInt(), 0xFF5D4037.toInt(),
+        )
     }
 }
 

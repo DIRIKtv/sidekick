@@ -15,6 +15,13 @@ data class Favorite(
 
 /** Local settings, favorites and watch history. */
 class Prefs(context: Context) {
+    companion object {
+        val CHAT_TEXT_SIZES = listOf(13 to "Small", 15 to "Medium", 17 to "Large", 20 to "Extra large")
+        val CHAT_WIDTHS = listOf(250 to "Narrow", 300 to "Normal", 360 to "Wide")
+
+        fun chatWidthLabel(dp: Int) = CHAT_WIDTHS.firstOrNull { it.first == dp }?.second ?: "${dp}dp"
+    }
+
     private val sp: SharedPreferences = context.getSharedPreferences("sidekick", Context.MODE_PRIVATE)
 
     var language: String
@@ -106,6 +113,46 @@ class Prefs(context: Context) {
     var seekStepSeconds: Int
         get() = sp.getInt("seek_step", 10)
         set(v) = sp.edit().putInt("seek_step", v).apply()
+
+    /** App typeface key (see AppFonts.Font). */
+    var font: String
+        get() = sp.getString("font", "figtree") ?: "figtree"
+        set(v) = sp.edit().putString("font", v).apply()
+
+    /** Main-screen page the app opens on: 0 Home, 1 Following, 2 Browse, 3 Search. */
+    var startPage: Int
+        get() = sp.getInt("start_page", 0)
+        set(v) = sp.edit().putInt("start_page", v).apply()
+
+    var chatTimestamps: Boolean
+        get() = sp.getBoolean("chat_timestamps", false)
+        set(v) = sp.edit().putBoolean("chat_timestamps", v).apply()
+
+    /** Width of chat beside the video, in dp. */
+    var chatWidth: Int
+        get() = sp.getInt("chat_width", 300)
+        set(v) = sp.edit().putInt("chat_width", v).apply()
+
+    /** Category names hidden from Home, Browse and Search (lowercase). */
+    var hiddenCategories: Set<String>
+        get() = sp.getStringSet("hidden_categories", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("hidden_categories", v.map { it.lowercase() }.toSet()).apply()
+
+    fun isHiddenCategory(name: String?) = name != null && name.lowercase() in hiddenCategories
+
+    /** Most recent first. */
+    var searchHistory: List<String>
+        get() = runCatching {
+            val arr = JSONArray(sp.getString("search_history", "[]"))
+            (0 until arr.length()).map { arr.getString(it) }
+        }.getOrDefault(emptyList())
+        set(list) = sp.edit().putString("search_history", JSONArray(list).toString()).apply()
+
+    fun recordSearch(q: String) {
+        val t = q.trim()
+        if (t.isEmpty()) return
+        searchHistory = (listOf(t) + searchHistory.filterNot { it.equals(t, true) }).take(12)
+    }
 
     var favorites: List<Favorite>
         get() {

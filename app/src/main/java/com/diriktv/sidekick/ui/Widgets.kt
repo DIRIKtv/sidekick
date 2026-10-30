@@ -195,6 +195,7 @@ class RollingCounter @JvmOverloads constructor(context: Context, attrs: Attribut
     private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
         color = 0xCCFFFFFF.toInt()
+        typeface = AppFonts.get(context, AppFonts.Weight.REGULAR)
     }
     var textColor: Int
         get() = paint.color
@@ -447,8 +448,13 @@ class SearchPill @JvmOverloads constructor(context: Context, attrs: AttributeSet
         field.alpha = 0f
     }
 
+    /** Stay open even when empty and unfocused (the Search page types into it from its own keyboard). */
+    var alwaysOpen = false
+        set(v) { field = v; update() }
+
     private fun update() {
-        val want = field.hasFocus() || !field.text.isNullOrBlank()
+        if (!::field.isInitialized) return
+        val want = alwaysOpen || field.hasFocus() || !field.text.isNullOrBlank()
         if (want == open) return invalidate()
         if (want && !still) {
             // It yields for a beat before it opens: a thing that gives reads as pushed.

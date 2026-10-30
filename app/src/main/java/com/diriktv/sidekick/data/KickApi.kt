@@ -286,11 +286,12 @@ object KickApi {
         }
     }
 
-    suspend fun search(query: String): List<SearchChannel> {
+    suspend fun search(query: String): SearchResults {
         val url = "https://kick.com/api/search".toHttpUrl().newBuilder()
             .addQueryParameter("searched_word", query).build().toString()
-        val arr = JSONObject(get(url)).optJSONArray("channels") ?: JSONArray()
-        return (0 until arr.length()).map { i ->
+        val json = JSONObject(get(url))
+        val arr = json.optJSONArray("channels") ?: JSONArray()
+        val channels = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             val user = o.optJSONObject("user") ?: JSONObject()
             SearchChannel(
@@ -302,6 +303,20 @@ object KickApi {
                 verified = o.opt("verified").let { it != null && it != JSONObject.NULL && it != false },
             )
         }.filter { it.slug.isNotEmpty() }
+        val cats = json.optJSONArray("categories") ?: JSONArray()
+        val categories = (0 until cats.length()).map { i ->
+            val o = cats.getJSONObject(i)
+            Category(
+                id = o.optInt("id"),
+                name = o.optString("name"),
+                slug = o.optString("slug"),
+                viewers = o.optInt("viewers"),
+                banner = o.optJSONObject("banner")?.let { b ->
+                    com.diriktv.sidekick.ui.Img.fromSrcset(b.optStringOrNull("srcset"), 340) ?: b.optStringOrNull("src")
+                },
+            )
+        }.filter { it.id != 0 }
+        return SearchResults(channels, categories)
     }
 
     /** The signed-in user for [token], or null if the token isn't valid. */

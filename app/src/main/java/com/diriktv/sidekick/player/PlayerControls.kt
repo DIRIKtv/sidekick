@@ -249,7 +249,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
 
     fun bindHeader() {
         val c = act.channel
-        act.findViewById<ImageView>(R.id.avatar).loadAvatar(c?.avatar)
+        act.findViewById<ImageView>(R.id.avatar).loadAvatar(c?.avatar, c?.username)
         act.findViewById<TextView>(R.id.channelName).text = (c?.username ?: act.slug) + if (c?.verified == true) " ✓" else ""
         act.findViewById<TextView>(R.id.streamTitle).text =
             if (act.mode == PlayerActivity.Mode.VOD) act.vodTitle.orEmpty() else c?.liveTitle.orEmpty()
