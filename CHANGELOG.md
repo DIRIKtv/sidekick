@@ -3,6 +3,14 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.5.0 · October 30, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Chat from your phone:** the new phone button in the player shows a QR code. Scan it to read chat and send messages from your phone. The page follows whatever your TV is playing, so you only scan once
+- **Raids:** when the channel you're watching raids someone, Sidekick offers to take you along (or goes automatically, or stays put; Settings → Playback → Raids)
+- **Live previews:** rest on a live stream for a moment and it starts playing, muted, right in the card. Pick 1, 2 or 3 seconds, or turn it off, in Settings → Browsing → Previews
+- **Chat replay:** past broadcasts play their original chat in time with the video, even when you skip around
+
 ## 1.4.1 · October 29, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
