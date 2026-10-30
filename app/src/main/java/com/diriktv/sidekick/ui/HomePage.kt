@@ -33,6 +33,11 @@ interface MainPage {
 
 /** Home: a hero carousel of live followed channels, then rows of live streams. */
 class HomePage(private val act: FragmentActivity) : MainPage {
+    private companion object {
+        /** Rows loaded straight away; the others wait until they're about to be seen. */
+        const val EAGER_ROWS = 4
+    }
+
     private val prefs = Prefs(act)
     private val list = RecyclerView(act)
     private val status = TextView(act)
@@ -46,7 +51,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
     var onFirstLoad: (() -> Unit)? = null
     /** Grab focus as soon as content arrives (startup, or a reload while focused here). */
     private var pendingFocus = true
-    private val cardWidth = act.dp(200)
+    /** Settings → Browsing → Card size. */
+    private val cardWidth = act.dp(listOf(168, 200, 240)[prefs.cardSize.coerceIn(0, 2)])
     /** Rows get a fixed height; wrap_content made them re-measure (and rebind) on every image load. */
     private val rowListHeight: Int by lazy {
         val probe = FrameLayout(act).inflate(R.layout.item_stream_card)
@@ -149,6 +155,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             val rv = holder.itemView.findViewById<RecyclerView>(R.id.rowList)
             rv.adapter = row.adapter
             rv.layoutManager?.onRestoreInstanceState(row.scrollState)
+            if (row.adapter.itemCount == 0) row.loadMore()
             holder.itemView.tag = row
         }
 
@@ -342,7 +349,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                 rows.clear()
                 rows += newRows
                 rowAdapter.notifyDataSetChanged()
-                rows.forEach { it.loadMore() }
+                // Only the rows near the top load now; the rest load as they scroll into view.
+                rows.take(EAGER_ROWS).forEach { it.loadMore() }
                 if (pendingFocus && heroItems.isNotEmpty()) list.post { if (focusContent()) pendingFocus = false }
             } catch (e: Exception) {
                 status.text = "Couldn't reach Kick. Check your connection.\n\nPress ☰ on the remote to try again."

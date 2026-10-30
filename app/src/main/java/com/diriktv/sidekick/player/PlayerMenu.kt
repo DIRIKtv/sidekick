@@ -52,7 +52,7 @@ internal class PlayerMenu(private val act: PlayerActivity) {
         return videoTracks().any { overrides.containsKey(it.group.mediaTrackGroup) }
     }
 
-    private fun currentQualityLabel(): String {
+    internal fun currentQualityLabel(): String {
         val playing = qualityLabel(player.videoFormat)
         return if (isQualityOverridden()) playing else "Auto • $playing"
     }
@@ -99,8 +99,8 @@ internal class PlayerMenu(private val act: PlayerActivity) {
             if (textTracks().isNotEmpty()) {
                 add(OptionSheet.Item("Captions", value = currentCaptionLabel(), icon = R.drawable.ic_cc, submenu = true) { it.push(captionsPage()) })
             }
-            if (act.mode != PlayerActivity.Mode.VOD) {
-                add(OptionSheet.Item("Chat", value = if (!act.chat.wanted) "Hidden" else if (prefs.chatMode == "side") "Beside video" else "Over video",
+            if (act.mode != PlayerActivity.Mode.VOD || act.chat.canReplay) {
+                add(OptionSheet.Item("Chat", value = if (!act.chat.wanted) "Hidden" else layoutLabel(),
                     icon = R.drawable.ic_chat, submenu = true) { it.push(chatPage()) })
             }
             add(OptionSheet.Item("Loudness equalization", sub = "Turns quiet talking up, loud moments down",
@@ -137,7 +137,7 @@ internal class PlayerMenu(private val act: PlayerActivity) {
         }
     }
 
-    private fun qualityPage(): OptionSheet.Page {
+    internal fun qualityPage(): OptionSheet.Page {
         val tracks = videoTracks()
             .groupBy { qualityLabel(it.format) }
             .map { (_, list) -> list.maxByOrNull { it.format.bitrate }!! }
@@ -196,16 +196,21 @@ internal class PlayerMenu(private val act: PlayerActivity) {
         }
     }
 
+    private fun layoutLabel(): String {
+        val l = act.chat.layout
+        return (if (l.beside) "Beside video" else "Over video") + if (l.left) ", left" else ""
+    }
+
     private fun chatPage() = OptionSheet.Page("Chat") {
+        fun onOff(b: Boolean) = if (b) "On" else "Off"
         listOf(
-            OptionSheet.Item("Show chat", value = if (act.chat.wanted) "On" else "Off") {
+            OptionSheet.Item("Show chat", value = onOff(act.chat.wanted)) {
                 act.chat.wanted = !act.chat.wanted; prefs.chatEnabled = act.chat.wanted; act.chat.applyLayout(animate = true); it.refresh()
             },
-            OptionSheet.Item("Beside the video", sub = "Video shrinks to make room", checked = prefs.chatMode == "side") {
-                prefs.chatMode = "side"; act.chat.applyLayout(animate = true); it.refresh()
-            },
-            OptionSheet.Item("Over the video", sub = "See-through panel on top", checked = prefs.chatMode != "side") {
-                prefs.chatMode = "overlay"; act.chat.applyLayout(animate = true); it.refresh()
+            OptionSheet.Item("Customize layout", sub = "Side, size and position, remembered for ${act.channel?.username ?: "this channel"}",
+                value = layoutLabel(), icon = R.drawable.ic_layout) {
+                it.dismiss()
+                act.layoutEditor.show()
             },
             OptionSheet.Item("Filters", value = filterSummary(), submenu = true) { it.push(filtersPage()) },
             OptionSheet.Item("Text size", value = "${prefs.chatTextSize}sp", submenu = true) { sheet ->
@@ -220,20 +225,41 @@ internal class PlayerMenu(private val act: PlayerActivity) {
                     }
                 })
             },
-            OptionSheet.Item("Width", value = Prefs.chatWidthLabel(prefs.chatWidth), submenu = true) { sheet ->
-                sheet.push(OptionSheet.Page("Chat width", subtitle = "How much room chat takes beside the video.") {
-                    Prefs.CHAT_WIDTHS.map { (w, label) ->
-                        OptionSheet.Item(label, checked = prefs.chatWidth == w) { s ->
-                            prefs.chatWidth = w
-                            act.chat.applyLayout(animate = true)
+            OptionSheet.Item("Message spacing", value = Prefs.CHAT_SPACINGS[prefs.chatSpacing].second, submenu = true) { sheet ->
+                sheet.push(OptionSheet.Page("Message spacing") {
+                    Prefs.CHAT_SPACINGS.mapIndexed { i, (_, label) ->
+                        OptionSheet.Item(label, checked = prefs.chatSpacing == i) { s ->
+                            prefs.chatSpacing = i
+                            act.chat.refreshStyle()
                             s.back()
                         }
                     }
                 })
             },
-            OptionSheet.Item("Timestamps", sub = "Show when each message arrived", value = if (prefs.chatTimestamps) "On" else "Off") {
+            OptionSheet.Item("Emote size", value = Prefs.emoteSizeLabel(prefs.chatEmoteScale), submenu = true) { sheet ->
+                sheet.push(OptionSheet.Page("Emote size") {
+                    Prefs.EMOTE_SIZES.map { (scale, label) ->
+                        OptionSheet.Item(label, checked = prefs.chatEmoteScale == scale) { s ->
+                            prefs.chatEmoteScale = scale
+                            act.chat.refreshStyle()
+                            s.back()
+                        }
+                    }
+                })
+            },
+            OptionSheet.Item("Timestamps", sub = "Show when each message arrived", value = onOff(prefs.chatTimestamps)) {
                 prefs.chatTimestamps = !prefs.chatTimestamps
                 act.chat.setTimestamps(prefs.chatTimestamps)
+                it.refresh()
+            },
+            OptionSheet.Item("Pinned message", sub = "Show the channel's pinned message above chat", value = onOff(prefs.chatPinned)) {
+                prefs.chatPinned = !prefs.chatPinned
+                act.chat.refreshExtras()
+                it.refresh()
+            },
+            OptionSheet.Item("Polls & predictions", sub = "Live results above chat", value = onOff(prefs.chatPolls)) {
+                prefs.chatPolls = !prefs.chatPolls
+                act.chat.refreshExtras()
                 it.refresh()
             },
         )

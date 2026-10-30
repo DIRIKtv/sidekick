@@ -379,6 +379,43 @@ object KickApi {
         return (0 until arr.length()).mapNotNull { parseChatMessage(arr.getJSONObject(it)) }
     }
 
+    /** The message pinned at the top of a channel's chat, or null. */
+    suspend fun pinnedMessage(channelId: Int): ChatMessage? {
+        val data = JSONObject(get("https://kick.com/api/v2/channels/$channelId/messages")).optJSONObject("data")
+        return data?.optJSONObject("pinned_message")?.optJSONObject("message")?.let { parseChatMessage(it) }
+    }
+
+    /** The poll running in [slug]'s chat, or null when there isn't one. */
+    suspend fun poll(slug: String): ChatPoll? {
+        val o = runCatching { JSONObject(get("https://kick.com/api/v2/channels/${slug.lowercase()}/polls")) }.getOrNull() ?: return null
+        return o.optJSONObject("data")?.optJSONObject("poll")?.let { parsePoll(it) }
+    }
+
+    /** The channel's latest prediction (running, locked or recently decided), or null. */
+    suspend fun prediction(slug: String): ChatPoll? {
+        val p = JSONObject(get("https://kick.com/api/v2/channels/${slug.lowercase()}/predictions/latest"))
+            .optJSONObject("data")?.optJSONObject("prediction") ?: return null
+        val outcomes = p.optJSONArray("outcomes") ?: JSONArray()
+        val state = p.optString("state")
+        val decidedAt = com.diriktv.sidekick.ui.Fmt.parseUtc(p.optStringOrNull("updated_at")) ?: 0L
+        // A decided prediction stays up for two minutes so the result can be seen.
+        if (state == "RESOLVED" || state == "CANCELLED") {
+            if (System.currentTimeMillis() - decidedAt > 120_000) return null
+        }
+        val created = com.diriktv.sidekick.ui.Fmt.parseUtc(p.optStringOrNull("created_at")) ?: 0L
+        val ends = created + p.optInt("duration") * 1000L
+        return ChatPoll(
+            kind = ChatPoll.PREDICTION,
+            title = p.optString("title"),
+            options = (0 until outcomes.length()).map { i ->
+                val oc = outcomes.getJSONObject(i)
+                ChatPoll.Option(oc.optString("title"), oc.optLong("total_vote_amount"), oc.optString("id") == p.optString("winning_outcome_id"))
+            },
+            secondsLeft = if (state == "ACTIVE") ((ends - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0) else 0,
+            state = state,
+        )
+    }
+
     /** The signed-in user for [token], or null if the token isn't valid. */
     suspend fun me(token: String): Pair<String, String?>? = withContext(Dispatchers.IO) {
         val req = Request.Builder().url("https://kick.com/api/v1/user").header("Authorization", "Bearer $token").build()

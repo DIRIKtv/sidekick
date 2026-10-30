@@ -17,7 +17,7 @@ import com.diriktv.sidekick.data.Updater
 import com.diriktv.sidekick.tv.TvHome
 import com.diriktv.sidekick.ui.LiveAlerts
 
-class SidekickApp : Application(), SingletonImageLoader.Factory {
+class SidekickApp : Application(), SingletonImageLoader.Factory, android.content.ComponentCallbacks2 {
     companion object {
         private var meter: DefaultBandwidthMeter? = null
 
@@ -34,6 +34,8 @@ class SidekickApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        val am = getSystemService(android.app.ActivityManager::class.java)
+        com.diriktv.sidekick.ui.Img.lowMemory = am.isLowRamDevice || am.memoryClass < 192
         Follows.init(this)
         LiveAlerts.init(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
@@ -50,6 +52,22 @@ class SidekickApp : Application(), SingletonImageLoader.Factory {
             override fun onActivityDestroyed(activity: Activity) {}
         })
         TvHome.schedule(this)
+    }
+
+    /**
+     * Gives memory back when Android asks: images are cheap to reload, and a TV that runs short
+     * closes the app in the background instead.
+     */
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            com.diriktv.sidekick.ui.FocusPreview.release()
+            SingletonImageLoader.get(this).memoryCache?.let { cache ->
+                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) cache.clear()
+                else cache.trimToSize(cache.maxSize / 2)
+            }
+        }
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =

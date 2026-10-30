@@ -193,6 +193,7 @@ class PlayerActivity : FragmentActivity() {
     private fun begin() {
         mode = if (vodUrl != null) Mode.VOD else Mode.LIVE
         chat.wanted = prefs.chatEnabled
+        chat.layout = prefs.chatLayout(slug)
         controls.updateMode()
         chat.applyLayout()
         controls.bindHeader()
@@ -332,7 +333,8 @@ class PlayerActivity : FragmentActivity() {
         liveLoad?.cancel()
         liveLoad = lifecycleScope.launch {
             val c = try {
-                KickApi.channel(slug, maxAgeMs = 0)
+                // A card that was focused a moment ago already fetched this; use it if it's fresh.
+                KickApi.channel(slug, maxAgeMs = 10_000)
             } catch (e: Exception) {
                 buffering.setVisible(false)
                 showError("Couldn't load the stream.\n${e.message}", "Retry") { startLive() }
@@ -409,9 +411,24 @@ class PlayerActivity : FragmentActivity() {
         val resume = vodUuid?.let { prefs.vodPosition(it) } ?: 0L
         player.setMediaItem(PlayerFactory.item(url), resume)
         player.prepare()
+        updateModeUi()
+        // Part-way through a past broadcast: ask whether to pick up there or start over.
+        if (resume > 60_000 && !isClip && prefs.askToResume) {
+            controls.cancelHide()
+            OptionSheet(this).apply {
+                onDismiss = { player.play() }
+                show(OptionSheet.Page("Pick up where you left off?", eyebrow = vodTitle ?: "Past broadcast",
+                    subtitle = "You stopped at ${Fmt.time(resume)}.") {
+                    listOf(
+                        OptionSheet.Item("Resume from ${Fmt.time(resume)}", icon = R.drawable.ic_play) { it.dismiss() },
+                        OptionSheet.Item("Start over", icon = R.drawable.ic_replay) { player.seekTo(0); it.dismiss() },
+                    )
+                })
+            }
+            return
+        }
         player.play()
         if (resume > 10_000) controls.flashOsd("Resuming from ${Fmt.time(resume)}", R.drawable.ic_play)
-        updateModeUi()
     }
 
     private fun loadChannel(connectChat: Boolean) {
@@ -768,9 +785,12 @@ class PlayerActivity : FragmentActivity() {
 
     // region keys
 
+    internal val layoutEditor by lazy { ChatLayoutEditor(this) }
+
     // Overriding Activity.dispatchKeyEvent is standard; lint trips on AndroidX's restricted override of it.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (layoutEditor.showing && layoutEditor.handle(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN) {
             val controlsShown = controls.up
             val errorShown = errorView.visibility == View.VISIBLE
@@ -828,6 +848,11 @@ class PlayerActivity : FragmentActivity() {
     }
 
     private fun handleBack() {
+        // Newer Android sends Back here rather than through the key handler.
+        if (layoutEditor.showing) {
+            layoutEditor.saveForChannel()
+            return
+        }
         when {
             pendingSeek != null -> commitPendingSeek()
             controls.up -> controls.hide()

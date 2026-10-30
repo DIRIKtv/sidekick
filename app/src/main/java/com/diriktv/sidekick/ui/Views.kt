@@ -213,9 +213,12 @@ fun ViewGroup.inflate(layout: Int): View =
 object Img {
     private val sizeRegex = Regex("""/(160|360|480|720|1080)\.webp(\?.*)?$""")
 
+    /** Set at startup on TVs with little memory: card images come in a size smaller. */
+    @Volatile var lowMemory = false
+
     /** Kick thumbnails exist at 160/360/480/720/1080 px wide; ask for the one that fits. */
     fun thumb(url: String?, width: Int = 480): String? =
-        url?.replace(sizeRegex, "/$width.webp")
+        url?.replace(sizeRegex, "/${if (lowMemory && width == 480) 360 else width}.webp")
 
     /** From an HTML srcset, the smallest image at least [minWidth] px wide. */
     fun fromSrcset(srcset: String?, minWidth: Int): String? {

@@ -23,6 +23,39 @@ data class ChatMessage(
     val receivedAt: Long = System.currentTimeMillis(),
 )
 
+/** A poll or prediction shown above chat. Option amounts are votes (polls) or points (predictions). */
+data class ChatPoll(
+    val kind: String,
+    val title: String,
+    val options: List<Option>,
+    val secondsLeft: Int,
+    val state: String = "ACTIVE",
+) {
+    data class Option(val label: String, val amount: Long, val won: Boolean = false)
+
+    val total get() = options.sumOf { it.amount }
+
+    companion object {
+        const val POLL = "poll"
+        const val PREDICTION = "prediction"
+    }
+}
+
+/** A poll as Kick sends it, from its API or a PollUpdateEvent. */
+fun parsePoll(p: JSONObject): ChatPoll? {
+    val opts = p.optJSONArray("options") ?: return null
+    return ChatPoll(
+        kind = ChatPoll.POLL,
+        title = p.optString("title"),
+        options = (0 until opts.length()).map { i ->
+            val o = opts.getJSONObject(i)
+            ChatPoll.Option(o.optString("label"), o.optLong("votes"))
+        },
+        secondsLeft = p.optInt("remaining", 0),
+        state = if (p.optInt("remaining", 1) <= 0) "ENDED" else "ACTIVE",
+    )
+}
+
 /** Where a raid (or host) sent the channel's viewers. */
 data class RaidTarget(val slug: String, val username: String, val viewers: Int)
 
@@ -84,6 +117,10 @@ class ChatClient(
     private val onStatus: (String) -> Unit,
     private val channelId: Int = 0,
     private val onRaid: (RaidTarget) -> Unit = {},
+    /** The pinned message changed: the new one, or null when it was unpinned. */
+    private val onPinned: (ChatMessage?) -> Unit = {},
+    /** A poll started or its results changed; null when it ended. */
+    private val onPoll: (ChatPoll?) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var socket: WebSocket? = null
@@ -134,6 +171,18 @@ class ChatClient(
                 val chat = parseChatMessage(data)?.copy(receivedAt = System.currentTimeMillis()) ?: return
                 main.post { onMessage(chat) }
             }
+            "App\\Events\\PinnedMessageCreatedEvent" -> {
+                val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
+                val pinned = data.optJSONObject("message")?.let { parseChatMessage(it) } ?: return
+                main.post { onPinned(pinned) }
+            }
+            "App\\Events\\PinnedMessageDeletedEvent" -> main.post { onPinned(null) }
+            "App\\Events\\PollUpdateEvent" -> {
+                val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
+                val poll = data.optJSONObject("poll")?.let { parsePoll(it) } ?: return
+                main.post { onPoll(poll) }
+            }
+            "App\\Events\\PollDeleteEvent" -> main.post { onPoll(null) }
             "App\\Events\\ChatMoveToSupportedChannelEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
                 val target = parseRaid(data) ?: return

@@ -29,7 +29,22 @@ internal class ChatController(private val act: PlayerActivity) {
     private val panel: View = act.findViewById(R.id.chatPanel)
     private val list: RecyclerView = act.findViewById(R.id.chatList)
     private val stage: View = act.findViewById(R.id.stage)
-    val adapter = ChatAdapter(act, prefs.chatTextSize).apply { showTimestamps = prefs.chatTimestamps }
+    val adapter = ChatAdapter(act, prefs.chatTextSize).apply {
+        showTimestamps = prefs.chatTimestamps
+        spacingDp = com.diriktv.sidekick.data.Prefs.CHAT_SPACINGS[prefs.chatSpacing.coerceIn(0, 2)].first
+        emoteScale = prefs.chatEmoteScale
+    }
+    private val pinnedView: android.widget.TextView = act.findViewById(R.id.chatPinned)
+    private val pollView: android.widget.LinearLayout = act.findViewById(R.id.chatPoll)
+    private var pinned: ChatMessage? = null
+    private var poll: com.diriktv.sidekick.data.ChatPoll? = null
+    private var liveChannel: ChannelInfo? = null
+    private val pollTick = object : Runnable {
+        override fun run() {
+            checkPolls()
+            act.ui.postDelayed(this, 15_000)
+        }
+    }
     private val filter = ChatFilter(prefs)
 
     private var client: ChatClient? = null
@@ -136,6 +151,15 @@ internal class ChatController(private val act: PlayerActivity) {
     // endregion
 
     fun connect(c: ChannelInfo) {
+        if (liveChannel?.id != c.id) {
+            liveChannel = c
+            act.lifecycleScope.launch {
+                pinned = runCatching { KickApi.pinnedMessage(c.id) }.getOrNull()
+                showPinned()
+            }
+            act.ui.removeCallbacks(pollTick)
+            act.ui.post(pollTick)
+        }
         loadEmotes(c)
         prefetchEmotes(c)
         if (c.chatroomId == 0 || client != null || connecting) return
@@ -153,6 +177,8 @@ internal class ChatController(private val act: PlayerActivity) {
                 onStatus = { add(ChatMessage("sys-${System.nanoTime()}", "", null, it, emptyList(), isSystem = true)) },
                 channelId = c.id,
                 onRaid = { act.onRaid(it) },
+                onPinned = { pinned = it; showPinned() },
+                onPoll = { poll = it; showPoll() },
             ).also { it.connect() }
             PhoneChat.target = PhoneChat.Target(c.slug, c.username, c.avatar, c.chatroomId, c.subscriberBadges)
             PhoneChat.sevenTv = adapter.thirdPartyEmotes
@@ -194,6 +220,85 @@ internal class ChatController(private val act: PlayerActivity) {
         }
     }
 
+    /** Spacing or emote size changed in the menu. */
+    fun refreshStyle() {
+        adapter.spacingDp = com.diriktv.sidekick.data.Prefs.CHAT_SPACINGS[prefs.chatSpacing.coerceIn(0, 2)].first
+        adapter.emoteScale = prefs.chatEmoteScale
+        adapter.notifyDataSetChanged()
+        showPinned()
+    }
+
+    /** The pinned message or poll settings changed. */
+    fun refreshExtras() {
+        showPinned()
+        showPoll()
+        if (prefs.chatPolls) checkPolls()
+    }
+
+    private fun showPinned() {
+        val m = pinned
+        val show = m != null && prefs.chatPinned && act.mode != PlayerActivity.Mode.VOD
+        pinnedView.setVisible(show)
+        if (!show || m == null) return
+        pinnedView.text = adapter.renderMessage(m, pinnedView.lineHeight)
+        val pin = act.getDrawable(R.drawable.ic_pin)!!.mutate()
+        val size = act.dp(15)
+        pin.setBounds(0, 0, size, size)
+        pinnedView.setCompoundDrawablesRelative(pin, null, null, null)
+    }
+
+    /** Checks Kick for a running poll and the latest prediction (live events also update it). */
+    private fun checkPolls() {
+        val c = liveChannel ?: return
+        if (!prefs.chatPolls || act.mode == PlayerActivity.Mode.VOD) return
+        act.lifecycleScope.launch {
+            val p = runCatching { KickApi.poll(c.slug) }.getOrNull()
+                ?: runCatching { KickApi.prediction(c.slug) }.getOrNull()
+            if (liveChannel?.id != c.id) return@launch
+            poll = p
+            showPoll()
+        }
+    }
+
+    /** The poll or prediction card: its question, then each answer with a bar of its share. */
+    private fun showPoll() {
+        val p = poll
+        val show = p != null && prefs.chatPolls && act.mode != PlayerActivity.Mode.VOD && p.options.isNotEmpty()
+        pollView.setVisible(show)
+        if (!show || p == null) return
+        pollView.removeAllViews()
+        val head = when {
+            p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION && p.state == "RESOLVED" -> "PREDICTION • DECIDED"
+            p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION && p.state == "LOCKED" -> "PREDICTION • LOCKED"
+            p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION -> "PREDICTION"
+            p.state == "ENDED" -> "POLL • RESULTS"
+            else -> "POLL"
+        } + if (p.secondsLeft > 0) "  •  ${p.secondsLeft / 60}:${"%02d".format(p.secondsLeft % 60)} left" else ""
+        pollView.addView(android.widget.TextView(act).apply {
+            text = head
+            textSize = 11f
+            letterSpacing = 0.08f
+            com.diriktv.sidekick.ui.AppFonts.get(act, com.diriktv.sidekick.ui.AppFonts.Weight.MEDIUM).let { typeface = it }
+            setTextColor(act.getColor(R.color.kick_green))
+        })
+        pollView.addView(android.widget.TextView(act).apply {
+            text = p.title
+            textSize = 14f
+            typeface = com.diriktv.sidekick.ui.AppFonts.get(act, com.diriktv.sidekick.ui.AppFonts.Weight.BOLD)
+            setTextColor(act.getColor(R.color.text_primary))
+            setPadding(0, act.dp(2), 0, act.dp(6))
+        })
+        val total = p.total.coerceAtLeast(1)
+        val leader = p.options.maxOf { it.amount }
+        for (o in p.options.take(5)) {
+            val share = o.amount.toFloat() / total
+            pollView.addView(PollBar(act, o.label, share, highlight = o.won || (o.amount == leader && o.amount > 0)),
+                android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, act.dp(24)).apply {
+                    topMargin = act.dp(4)
+                })
+        }
+    }
+
     fun setTimestamps(on: Boolean) {
         adapter.showTimestamps = on
         adapter.notifyDataSetChanged()
@@ -212,6 +317,12 @@ internal class ChatController(private val act: PlayerActivity) {
         emotesFor = -1
         prefetchedFor = null
         stopReplay()
+        act.ui.removeCallbacks(pollTick)
+        liveChannel = null
+        pinned = null
+        poll = null
+        showPinned()
+        showPoll()
         adapter.clear()
         adapter.subscriberBadges = emptyList()
         adapter.thirdPartyEmotes = emptyMap()
@@ -222,6 +333,7 @@ internal class ChatController(private val act: PlayerActivity) {
         backlog.clear()
         draining = false
         client?.close()
+        act.ui.removeCallbacks(pollTick)
         if (PhoneChat.target?.slug.equals(act.slug, true)) PhoneChat.target = null
     }
 
@@ -261,9 +373,12 @@ internal class ChatController(private val act: PlayerActivity) {
         if (panel.visibility == View.VISIBLE) list.scrollToPosition(adapter.itemCount - 1)
     }
 
+    /** Where chat sits for this channel (its own saved layout, or the default). */
+    var layout = com.diriktv.sidekick.data.ChatLayout()
+
     /** With overlay chat, the panel steps aside while the controls are up. */
     fun onControlsShown() {
-        if (prefs.chatMode != "side") panel.setVisible(false)
+        if (!layout.beside) panel.setVisible(false)
     }
 
     fun onControlsHidden() {
@@ -271,35 +386,50 @@ internal class ChatController(private val act: PlayerActivity) {
     }
 
     /**
-     * Places chat beside or over the video. With [animate], chat slides in from the right while
-     * the video eases over to make room (and the reverse when closing).
+     * Places chat per [layout]: beside the video on either side (the video moves over to make
+     * room), or floating over it at any height and position. With [animate], chat slides in from
+     * its side while the video eases over (and the reverse when closing).
      */
     fun applyLayout(animate: Boolean = false) {
+        val l = layout
         val show = shown
-        val side = prefs.chatMode == "side"
-        val panelVisible = show && (side || !act.controls.up)
-        panel.setBackgroundColor(act.getColor(if (side) R.color.chat_bg else R.color.chat_overlay_bg))
+        val beside = l.beside
+        val panelVisible = show && (beside || !act.controls.up)
+        panel.setBackgroundColor(act.getColor(if (beside) R.color.chat_bg else R.color.chat_overlay_bg))
         act.controls.btnChat.isActivated = show
         if (show) list.scrollToPosition((adapter.itemCount - 1).coerceAtLeast(0))
-        act.controls.setCompact(show && side)
+        act.controls.setCompact(show && beside)
 
-        val chatWidth = act.dp(prefs.chatWidth)
-        if (panel.layoutParams.width != chatWidth) panel.layoutParams = panel.layoutParams.apply { width = chatWidth }
+        val chatWidth = act.dp(l.width)
+        val parentH = (panel.parent as View).height
+        if (!beside && parentH == 0) panel.post { applyLayout() } // sized once the screen is laid out
+        val plp = panel.layoutParams as FrameLayout.LayoutParams
+        val h = if (beside || parentH == 0) FrameLayout.LayoutParams.MATCH_PARENT else parentH * l.height / 100
+        val top = if (beside || parentH == 0) 0 else (parentH - h) * l.top / 100
+        val gravity = (if (l.left) android.view.Gravity.START else android.view.Gravity.END) or android.view.Gravity.TOP
+        if (plp.width != chatWidth || plp.height != h || plp.gravity != gravity || plp.topMargin != top) {
+            plp.width = chatWidth; plp.height = h; plp.gravity = gravity; plp.topMargin = top
+            panel.layoutParams = plp
+        }
+
         val lp = stage.layoutParams as FrameLayout.LayoutParams
-        val targetMargin = if (show && side) chatWidth else 0
+        val targetStart = if (show && beside && l.left) chatWidth else 0
+        val targetEnd = if (show && beside && !l.left) chatWidth else 0
         animator?.cancel()
         if (!animate) {
             panel.setVisible(panelVisible)
             panel.translationX = 0f
             panel.alpha = 1f
-            lp.marginEnd = targetMargin
+            lp.marginStart = targetStart
+            lp.marginEnd = targetEnd
             stage.layoutParams = lp
             return
         }
-        val width = chatWidth.toFloat()
-        val startMargin = lp.marginEnd
-        val startShift = if (panel.visibility == View.VISIBLE) panel.translationX else width
-        val endShift = if (panelVisible) 0f else width
+        val away = (if (l.left) -1 else 1) * chatWidth.toFloat()
+        val startStart = lp.marginStart
+        val startEnd = lp.marginEnd
+        val startShift = if (panel.visibility == View.VISIBLE) panel.translationX else away
+        val endShift = if (panelVisible) 0f else away
         panel.visibility = View.VISIBLE
         animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 280
@@ -307,11 +437,10 @@ internal class ChatController(private val act: PlayerActivity) {
             addUpdateListener {
                 val f = it.animatedValue as Float
                 panel.translationX = startShift + (endShift - startShift) * f
-                panel.alpha = if (side) 1f else 1f - (panel.translationX / width)
-                if (startMargin != targetMargin) {
-                    lp.marginEnd = (startMargin + (targetMargin - startMargin) * f).toInt()
-                    stage.layoutParams = lp
-                }
+                panel.alpha = if (beside) 1f else 1f - kotlin.math.abs(panel.translationX / away)
+                lp.marginStart = (startStart + (targetStart - startStart) * f).toInt()
+                lp.marginEnd = (startEnd + (targetEnd - startEnd) * f).toInt()
+                stage.layoutParams = lp
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
@@ -322,5 +451,37 @@ internal class ChatController(private val act: PlayerActivity) {
             })
             start()
         }
+    }
+}
+
+/** One answer of a poll: a bar filled to its share, with the answer and the percentage on top. */
+private class PollBar(context: android.content.Context, private val label: String, private val share: Float, private val highlight: Boolean) :
+    View(context) {
+    private val track = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
+    private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = if (highlight) context.getColor(R.color.kick_green) else 0x66FFFFFF
+    }
+    private val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = context.dp(12).toFloat()
+        typeface = com.diriktv.sidekick.ui.AppFonts.get(context, com.diriktv.sidekick.ui.AppFonts.Weight.MEDIUM)
+    }
+    private val rect = android.graphics.RectF()
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val r = h / 2
+        rect.set(0f, 0f, w, h)
+        canvas.drawRoundRect(rect, r, r, track)
+        rect.set(0f, 0f, (w * share).coerceAtLeast(h), h)
+        canvas.drawRoundRect(rect, r, r, fill)
+        val y = h / 2 - (text.ascent() + text.descent()) / 2
+        val pct = "${(share * 100).toInt()}%"
+        text.color = if (highlight && share > 0.6f) 0xFF000000.toInt() else 0xFFF2F2F2.toInt()
+        val pctW = text.measureText(pct)
+        val room = w - pctW - context.dp(26)
+        val shown = android.text.TextUtils.ellipsize(label, android.text.TextPaint(text), room, android.text.TextUtils.TruncateAt.END)
+        canvas.drawText(shown, 0, shown.length, context.dp(10).toFloat(), y, text)
+        canvas.drawText(pct, w - pctW - context.dp(10), y, text)
     }
 }

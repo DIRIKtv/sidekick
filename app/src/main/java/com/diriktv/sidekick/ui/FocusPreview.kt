@@ -43,6 +43,7 @@ object FocusPreview {
             return
         }
         stop()
+        warm(cardView, slug)
         val delay = Prefs(cardView.context).previewDelay
         if (delay <= 0) return
         pendingFor = cardView
@@ -52,6 +53,27 @@ object FocusPreview {
     }
 
     private var pendingFor: View? = null
+    private var warmJob: Job? = null
+
+    /**
+     * Resting on a live card for a moment gets the stream ready: the channel's details are fetched
+     * (the player reuses them) and a connection to the video server is opened, so pressing OK
+     * starts playback sooner.
+     */
+    private fun warm(cardView: View, slug: String) {
+        warmJob?.cancel()
+        val act = cardView.context as? FragmentActivity ?: return
+        warmJob = act.lifecycleScope.launch {
+            kotlinx.coroutines.delay(350)
+            if (!cardView.isFocused) return@launch
+            val url = runCatching { KickApi.channel(slug).takeIf { it.isLive }?.playbackUrl }.getOrNull() ?: return@launch
+            runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    KickApi.http.newCall(okhttp3.Request.Builder().url(url).build()).execute().close()
+                }
+            }
+        }
+    }
 
     private fun start(cardView: View, slug: String) {
         pending = null
@@ -83,6 +105,13 @@ object FocusPreview {
         override fun onRenderedFirstFrame() {
             surface?.animate()?.alpha(1f)?.setDuration(250)?.start()
         }
+    }
+
+    /** Stops and frees the preview player (the app went to the background). */
+    fun release() {
+        stop()
+        player?.release()
+        player = null
     }
 
     fun stop() {

@@ -46,6 +46,11 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
 
     private val wordRegex = Regex("""\S+""")
 
+    /** Space above and below each message, in dp. */
+    var spacingDp = 3
+    /** Emote height as a multiple of the line height. */
+    var emoteScale = 1.25f
+
     /** Prefix each message with the time it arrived. */
     var showTimestamps = false
 
@@ -98,8 +103,13 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         holder.text.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
+        val pad = (spacingDp * context.resources.displayMetrics.density).toInt()
+        if (holder.text.paddingTop != pad) holder.text.setPadding(holder.text.paddingLeft, pad, holder.text.paddingRight, pad)
         holder.text.text = render(messages[position], holder.text.lineHeight)
     }
+
+    /** A message as chat shows it (for the pinned message card). */
+    fun renderMessage(m: ChatMessage, lineHeight: Int): CharSequence = render(m, lineHeight)
 
     private fun render(m: ChatMessage, lineHeight: Int): CharSequence {
         val sb = SpannableStringBuilder()
@@ -135,7 +145,7 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
         sb.append(": ")
 
         var last = 0
-        val size = (lineHeight * 1.25f).toInt().coerceAtLeast(24)
+        val size = (lineHeight * emoteScale).toInt().coerceAtLeast(18)
         for (match in emoteRegex.findAll(m.content)) {
             appendText(sb, m.content.substring(last, match.range.first), size)
             val name = match.groupValues[2]

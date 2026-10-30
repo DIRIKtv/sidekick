@@ -79,6 +79,8 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
 
     implementation("androidx.core:core-ktx:1.16.0")
+    // Installs the startup profile (src/main/baseline-prof.txt) on sideloaded installs too.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.fragment:fragment-ktx:1.8.8")
     implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.2")

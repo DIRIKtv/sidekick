@@ -412,6 +412,7 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         /** The section shown last, so returning to Settings (or a font change restarting it) lands there again. */
         private var lastSection = 0
         private val START_PAGES = listOf("Home", "Following", "Browse", "Search")
+        private val CARD_SIZES = listOf("Small", "Medium", "Large")
         private val RAID_MODES = listOf("ask" to "Ask", "auto" to "Go automatically", "off" to "Ignore")
         private val PREVIEW_DELAYS = listOf(0, 1, 2, 3)
         private fun previewLabel(s: Int) = if (s == 0) "Off" else "After ${s}s"
@@ -515,6 +516,14 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         prefs.seekStepSeconds = steps[it]
                     }
                 },
+                Setting("Progress line", { "A thin line on past broadcasts showing where you are while the controls are hidden" }, R.drawable.ic_timer,
+                    { onOff(prefs.miniProgress) }, toggle = { prefs.miniProgress }) {
+                    prefs.miniProgress = !prefs.miniProgress
+                },
+                Setting("Ask to resume", { "When you reopen a past broadcast, ask whether to pick up where you left off" }, R.drawable.ic_history,
+                    { onOff(prefs.askToResume) }, toggle = { prefs.askToResume }) {
+                    prefs.askToResume = !prefs.askToResume
+                },
                 Setting("Raids", { "When the channel you're watching sends its viewers to another" }, R.drawable.ic_raid,
                     { RAID_MODES.firstOrNull { it.first == prefs.raidMode }?.second ?: "Ask" }) {
                     choose("Raids", "When the channel you're watching raids another one.", RAID_MODES.map { it.second },
@@ -542,6 +551,12 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                     { onOff(prefs.chatEnabled) }, toggle = { prefs.chatEnabled }) {
                     prefs.chatEnabled = !prefs.chatEnabled
                 },
+                Setting("Chat side", { "Which side of the screen chat sits on" }, R.drawable.ic_layout,
+                    { if (prefs.chatSide == "left") "Left" else "Right" }) {
+                    val sides = listOf("right", "left")
+                    choose("Chat side", "Used for channels without their own layout.", listOf("Right", "Left"),
+                        selected = sides.indexOf(prefs.chatSide)) { prefs.chatSide = sides[it] }
+                },
                 Setting("Chat position", { "Where chat sits next to the stream" }, R.drawable.ic_layout,
                     { if (prefs.chatMode == "side") "Beside video" else "Over video" }) {
                     val modes = listOf("side", "overlay")
@@ -557,6 +572,15 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         prefs.chatWidth = widths[it].first
                     }
                 },
+                Setting("Channel layouts", { "Layouts you saved for particular channels in the player (Chat → Customize layout)" }, R.drawable.ic_layout,
+                    { prefs.channelChatLayouts.let { if (it == 0) "None" else "$it saved" } }) {
+                    if (prefs.channelChatLayouts == 0) return@Setting
+                    OptionSheet.confirm(act, "Forget channel layouts?", "Every channel goes back to the default chat layout.",
+                        "Forget layouts", R.drawable.ic_delete) {
+                        prefs.clearChannelChatLayouts()
+                        render()
+                    }
+                },
                 Setting("Chat text size", { "How big chat messages are" }, R.drawable.ic_text, { "${prefs.chatTextSize}sp" }) {
                     val sizes = Prefs.CHAT_TEXT_SIZES
                     choose("Chat text size", null, sizes.map { it.second },
@@ -564,6 +588,25 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         values = sizes.map { "${it.first}sp" }, selected = sizes.indexOfFirst { it.first == prefs.chatTextSize }) {
                         prefs.chatTextSize = sizes[it].first
                     }
+                },
+                Setting("Message spacing", { "Room between chat messages" }, R.drawable.ic_text,
+                    { Prefs.CHAT_SPACINGS[prefs.chatSpacing].second }) {
+                    choose("Message spacing", null, Prefs.CHAT_SPACINGS.map { it.second }, selected = prefs.chatSpacing) { prefs.chatSpacing = it }
+                },
+                Setting("Emote size", { "How big emotes are next to the text" }, R.drawable.ic_emote,
+                    { Prefs.emoteSizeLabel(prefs.chatEmoteScale) }) {
+                    choose("Emote size", null, Prefs.EMOTE_SIZES.map { it.second },
+                        selected = Prefs.EMOTE_SIZES.indexOfFirst { it.first == prefs.chatEmoteScale }) {
+                        prefs.chatEmoteScale = Prefs.EMOTE_SIZES[it].first
+                    }
+                },
+                Setting("Pinned message", { "Show the channel's pinned message above chat" }, R.drawable.ic_pin,
+                    { onOff(prefs.chatPinned) }, toggle = { prefs.chatPinned }) {
+                    prefs.chatPinned = !prefs.chatPinned
+                },
+                Setting("Polls & predictions", { "Live results above chat" }, R.drawable.ic_poll,
+                    { onOff(prefs.chatPolls) }, toggle = { prefs.chatPolls }) {
+                    prefs.chatPolls = !prefs.chatPolls
                 },
                 Setting("Timestamps", { "Show when each message arrived" }, R.drawable.ic_clock,
                     { onOff(prefs.chatTimestamps) }, toggle = { prefs.chatTimestamps }) {
@@ -598,6 +641,15 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                     choose("Previews", "A live card plays a muted preview once it's been in focus this long.",
                         PREVIEW_DELAYS.map { previewLabel(it) }, selected = PREVIEW_DELAYS.indexOf(prefs.previewDelay).coerceAtLeast(0)) {
                         prefs.previewDelay = PREVIEW_DELAYS[it]
+                    }
+                },
+                Setting("Card size", { "How big the cards on Home are" }, R.drawable.ic_grid,
+                    { CARD_SIZES[prefs.cardSize.coerceIn(0, 2)] }) {
+                    choose("Card size", "Smaller cards fit more on each row of Home.", CARD_SIZES, selected = prefs.cardSize) {
+                        if (it != prefs.cardSize) {
+                            prefs.cardSize = it
+                            view.postDelayed({ act.recreate() }, 200)
+                        }
                     }
                 },
                 Setting("Start-up page", { "Where the app opens" }, R.drawable.ic_startup,

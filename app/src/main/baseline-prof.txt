@@ -1,0 +1,21 @@
+# Startup profile: code Android compiles ahead of time on install, so launching the app, drawing
+# Home, opening the player and starting chat don't wait on the interpreter.
+# H = hot, S = run at startup, P = run after startup.
+
+# The app itself (small enough to include whole).
+HSPLcom/diriktv/sidekick/**;->**(**)**
+Lcom/diriktv/sidekick/**;
+
+# Networking and images, used from the first frame of Home.
+HSPLokhttp3/**;->**(**)**
+Lokhttp3/**;
+HSPLokio/**;->**(**)**
+Lokio/**;
+HSPLcoil3/**;->**(**)**
+Lcoil3/**;
+
+# Lists and the player.
+HSPLandroidx/recyclerview/widget/**;->**(**)**
+Landroidx/recyclerview/widget/**;
+HSPLandroidx/media3/exoplayer/**;->**(**)**
+Landroidx/media3/exoplayer/**;

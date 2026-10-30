@@ -48,6 +48,9 @@ internal class PlayerControls(private val act: PlayerActivity) {
     val btnFollow: ImageButton = act.findViewById(R.id.btnFollow)
     private val btnPhone: ImageButton = act.findViewById(R.id.btnPhone)
     private val btnProfile: ImageButton = act.findViewById(R.id.btnProfile)
+    private val btnQuality: TextView = act.findViewById(R.id.btnQuality)
+    private var qualityLabel = "Auto"
+    private val mini: android.widget.ProgressBar = act.findViewById(R.id.miniProgress)
     private val btnSettings: ImageButton = act.findViewById(R.id.btnSettings)
 
     /** Logical controls state; the view itself may still be fading out. */
@@ -74,6 +77,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         }
         btnFollow.setOnClickListener { act.toggleFollow() }
         btnPhone.setOnClickListener { PhoneChatDialog.show(act) }
+        btnQuality.setOnClickListener { act.menu.show(act.menu.qualityPage()) }
         btnProfile.setOnClickListener {
             // Same as Settings → Go to channel: the channel page replaces the player.
             com.diriktv.sidekick.ui.Nav.channel(act, act.slug)
@@ -99,6 +103,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
             btnChat to { if (act.chat.wanted) "Hide chat" else "Show chat" },
             btnFollow to { if (Follows.isFollowing(act, act.slug)) "Unfollow" else "Follow" },
             btnPhone to { "Chat from your phone" },
+            btnQuality to { "Quality • $qualityLabel" },
             btnProfile to { "Go to ${act.channel?.username ?: "channel"}" },
             btnSettings to { "Settings" },
         )
@@ -149,6 +154,8 @@ internal class PlayerControls(private val act: PlayerActivity) {
         osd.fadeOut(120)
         updateProgress()
         updateMeta()
+        updateQuality()
+        mini.setVisible(false)
         clock.text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
         if (!wasVisible) focus?.requestFocus()
         act.currentFocus?.let { updateTooltip(it) }
@@ -157,6 +164,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
 
     fun hide() {
         up = false
+        updateMini()
         root.fadeOut(200)
         tooltip.visibility = View.INVISIBLE
         act.chat.onControlsHidden()
@@ -192,9 +200,31 @@ internal class PlayerControls(private val act: PlayerActivity) {
         osd.setVisible(false)
     }
 
+    /** The quality button reads like the menu: "Auto • 720p", or the quality picked. */
+    fun updateQuality() {
+        val label = if (player.videoFormat == null) "Auto" else act.menu.currentQualityLabel()
+        qualityLabel = label
+        val shown = if (compact == true) "" else label
+        if (btnQuality.text != shown) btnQuality.text = shown
+        btnQuality.setVisible(act.menu.videoTracks().size > 1 || player.videoFormat != null)
+    }
+
+    /** The thin line along the bottom: past broadcasts and rewound live, controls hidden. */
+    fun updateMini() {
+        val show = !up && !act.inPip && act.mode != PlayerActivity.Mode.LIVE && prefs.miniProgress
+        if (show) {
+            val max = act.timelineMax()
+            mini.max = (max / 1000).toInt().coerceAtLeast(1)
+            mini.progress = (act.timelinePos() / 1000).toInt()
+        }
+        if (show != (mini.visibility == View.VISIBLE)) if (show) mini.fadeIn(200) else mini.setVisible(false)
+    }
+
     /** Called twice a second. */
     fun tick() {
+        updateMini()
         if (!up) return
+        updateQuality()
         if (act.pendingSeek == null) updateProgress()
         clock.text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
         updateMeta()
@@ -220,6 +250,15 @@ internal class PlayerControls(private val act: PlayerActivity) {
             val pad = act.dp(if (on) 11 else 12)
             b.setPadding(pad, pad, pad, pad)
         }
+        // Beside chat there's no room for the label: it becomes a round button like the others.
+        btnQuality.layoutParams = (btnQuality.layoutParams as LinearLayout.LayoutParams).apply {
+            height = small; marginStart = gap
+            width = if (on) small else LinearLayout.LayoutParams.WRAP_CONTENT
+        }
+        btnQuality.setBackgroundResource(if (on) R.drawable.bg_ctrl_button else R.drawable.bg_ctrl_pill)
+        btnQuality.compoundDrawablePadding = if (on) 0 else act.dp(8)
+        btnQuality.setPadding(if (on) act.dp(11) else act.dp(14), 0, if (on) 0 else act.dp(18), 0)
+        updateQuality()
         btnPlay.layoutParams = (btnPlay.layoutParams as LinearLayout.LayoutParams).apply {
             val big = act.dp(if (on) 54 else 64)
             width = big; height = big

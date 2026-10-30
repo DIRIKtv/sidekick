@@ -19,6 +19,12 @@ class Prefs(context: Context) {
         val CHAT_TEXT_SIZES = listOf(13 to "Small", 15 to "Medium", 17 to "Large", 20 to "Extra large")
         val CHAT_WIDTHS = listOf(250 to "Narrow", 300 to "Normal", 360 to "Wide")
 
+        /** Space above and below each chat message, in dp. */
+        val CHAT_SPACINGS = listOf(1 to "Compact", 3 to "Comfortable", 6 to "Roomy")
+        val EMOTE_SIZES = listOf(1.0f to "Small", 1.25f to "Medium", 1.6f to "Large", 2.0f to "Extra large")
+
+        fun emoteSizeLabel(scale: Float) = EMOTE_SIZES.firstOrNull { it.first == scale }?.second ?: "Medium"
+
         fun chatWidthLabel(dp: Int) = CHAT_WIDTHS.firstOrNull { it.first == dp }?.second ?: "${dp}dp"
     }
 
@@ -133,6 +139,73 @@ class Prefs(context: Context) {
     var previewDelay: Int
         get() = sp.getInt("preview_delay", 2)
         set(v) = sp.edit().putInt("preview_delay", v).apply()
+
+    /** A thin progress line on past broadcasts while the controls are hidden. */
+    var miniProgress: Boolean
+        get() = sp.getBoolean("mini_progress", true)
+        set(v) = sp.edit().putBoolean("mini_progress", v).apply()
+
+    /** Home card size: 0 small, 1 medium, 2 large. */
+    var cardSize: Int
+        get() = sp.getInt("card_size", 1)
+        set(v) = sp.edit().putInt("card_size", v).apply()
+
+    /** Space between chat messages: 0 compact, 1 comfortable, 2 roomy. */
+    var chatSpacing: Int
+        get() = sp.getInt("chat_spacing", 1)
+        set(v) = sp.edit().putInt("chat_spacing", v).apply()
+
+    /** Emote size in chat, as a multiple of the text's line height. */
+    var chatEmoteScale: Float
+        get() = sp.getFloat("chat_emote_scale", 1.25f)
+        set(v) = sp.edit().putFloat("chat_emote_scale", v).apply()
+
+    /** Show polls and predictions above chat. */
+    var chatPolls: Boolean
+        get() = sp.getBoolean("chat_polls", true)
+        set(v) = sp.edit().putBoolean("chat_polls", v).apply()
+
+    /** Show the channel's pinned message above chat. */
+    var chatPinned: Boolean
+        get() = sp.getBoolean("chat_pinned", true)
+        set(v) = sp.edit().putBoolean("chat_pinned", v).apply()
+
+    /** Ask before resuming a past broadcast part-way through. */
+    var askToResume: Boolean
+        get() = sp.getBoolean("ask_resume", true)
+        set(v) = sp.edit().putBoolean("ask_resume", v).apply()
+
+    /** Which side chat sits on by default: "right" or "left". */
+    var chatSide: String
+        get() = sp.getString("chat_side", "right") ?: "right"
+        set(v) = sp.edit().putString("chat_side", v).apply()
+
+    /** The chat layout for [slug], or the default one when it has none of its own. */
+    fun chatLayout(slug: String?): ChatLayout =
+        slug?.let { sp.getString("chat_layout_${it.lowercase()}", null) }?.let { ChatLayout.parse(it) }
+            ?: ChatLayout(mode = chatMode, side = chatSide, width = chatWidth,
+                height = sp.getInt("chat_height", 100), top = sp.getInt("chat_top", 100))
+
+    fun saveChatLayout(slug: String, layout: ChatLayout) =
+        sp.edit().putString("chat_layout_${slug.lowercase()}", layout.encode()).apply()
+
+    /** Makes [layout] the default for every channel without one of its own. */
+    fun saveDefaultChatLayout(layout: ChatLayout) {
+        chatMode = layout.mode
+        chatSide = layout.side
+        chatWidth = layout.width
+        sp.edit().putInt("chat_height", layout.height).putInt("chat_top", layout.top).apply()
+    }
+
+    fun clearChatLayout(slug: String) = sp.edit().remove("chat_layout_${slug.lowercase()}").apply()
+
+    val channelChatLayouts: Int get() = sp.all.keys.count { it.startsWith("chat_layout_") }
+
+    fun clearChannelChatLayouts() {
+        val e = sp.edit()
+        sp.all.keys.filter { it.startsWith("chat_layout_") }.forEach { e.remove(it) }
+        e.apply()
+    }
 
     /** Pages slide in from the direction you moved in the side menu. */
     var pageTransitions: Boolean
@@ -278,5 +351,35 @@ data class HistoryEntry(
             category = o.optStringOrNull("category"),
             watchedAt = o.optLong("watchedAt"),
         )
+    }
+}
+
+/**
+ * Where chat sits and how big it is. [mode] "side" puts it beside the video (the video shrinks),
+ * "overlay" floats it on top. [height] (percent of the screen) and [top] (percent of the space
+ * left over, 0 = top, 100 = bottom) only apply over the video.
+ */
+data class ChatLayout(
+    val mode: String = "side",
+    val side: String = "right",
+    val width: Int = 300,
+    val height: Int = 100,
+    val top: Int = 100,
+) {
+    val beside get() = mode == "side"
+    val left get() = side == "left"
+
+    fun encode(): String = JSONObject().put("mode", mode).put("side", side).put("width", width)
+        .put("height", height).put("top", top).toString()
+
+    companion object {
+        const val MIN_WIDTH = 200
+        const val MAX_WIDTH = 520
+
+        fun parse(s: String): ChatLayout? = runCatching {
+            val o = JSONObject(s)
+            ChatLayout(o.optString("mode", "side"), o.optString("side", "right"), o.optInt("width", 300),
+                o.optInt("height", 100), o.optInt("top", 100))
+        }.getOrNull()
     }
 }
