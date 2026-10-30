@@ -3,6 +3,11 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.6.2 · October 30, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Settings sections slide in:** moving down the sections, the next one rises from below; moving up, it drops in from above, just like the side menu's pages
+
 ## 1.6.1 · October 30, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
