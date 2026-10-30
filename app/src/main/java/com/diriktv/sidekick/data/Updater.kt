@@ -39,8 +39,11 @@ object Updater {
 
     data class Release(val version: String, val notes: String, val apkUrl: String, val sizeBytes: Long)
 
-    /** The latest release if it's newer than this build, else null. Throws on network errors. */
-    suspend fun checkNow(): Release? = withContext(Dispatchers.IO) {
+    /**
+     * The latest release if it's newer than this build, else null. [force] returns it anyway
+     * (debug builds use it to try the update screens). Throws on network errors.
+     */
+    suspend fun checkNow(force: Boolean = false): Release? = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url("https://api.github.com/repos/$REPO/releases/latest")
             .header("Accept", "application/vnd.github+json")
@@ -56,7 +59,7 @@ object Updater {
                 val a = assets.getJSONObject(i)
                 if (a.optString("name").endsWith(".apk")) { apk = a; break }
             }
-            if (apk == null || !isNewer(version, BuildConfig.VERSION_NAME)) return@withContext null
+            if (apk == null || (!force && !isNewer(version, BuildConfig.VERSION_NAME))) return@withContext null
             Release(version, o.optString("body").trim(), apk.getString("browser_download_url"), apk.optLong("size"))
         }
     }
@@ -84,7 +87,8 @@ object Updater {
     }
 
     /** Downloads the APK, reporting progress 0–100. */
-    suspend fun download(context: Context, release: Release, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
+    /** Downloads the release's APK, reporting bytes done and the total (0 when unknown) as it goes. */
+    suspend fun download(context: Context, release: Release, onProgress: (done: Long, total: Long) -> Unit): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
         val file = File(dir, "Sidekick-${release.version}.apk")
         KickApi.http.newCall(Request.Builder().url(release.apkUrl).build()).execute().use { resp ->
@@ -95,15 +99,21 @@ object Updater {
                 file.outputStream().use { out ->
                     val buf = ByteArray(64 * 1024)
                     var done = 0L
-                    var last = -1
+                    var lastAt = 0L
                     while (true) {
                         val n = input.read(buf)
                         if (n < 0) break
                         out.write(buf, 0, n)
                         done += n
-                        val pct = if (total > 0) (done * 100 / total).toInt() else 0
-                        if (pct != last) { last = pct; withContext(Dispatchers.Main) { onProgress(pct) } }
+                        // A few updates a second is plenty for the meter.
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - lastAt > 120) {
+                            lastAt = now
+                            val d = done
+                            withContext(Dispatchers.Main) { onProgress(d, total) }
+                        }
                     }
+                    withContext(Dispatchers.Main) { onProgress(done, total.coerceAtLeast(done)) }
                 }
             }
         }

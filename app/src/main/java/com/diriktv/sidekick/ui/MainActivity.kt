@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.view.View
 import android.widget.TextView
 import androidx.activity.addCallback
 import androidx.fragment.app.FragmentActivity
@@ -56,9 +57,14 @@ class MainActivity : FragmentActivity() {
         }
         // Back via the dispatcher: Android 16+ no longer calls onBackPressed for apps targeting it.
         onBackPressedDispatcher.addCallback(this) { handleBack() }
+        if (savedInstanceState == null) raiseCurtain()
         home = com.diriktv.sidekick.data.Prefs(this).startPage.coerceIn(0, 3)
         // Rebuilt after a font change: stay on the page that was open.
         val start = savedInstanceState?.getInt("page", home) ?: home
+        if (curtain != null) {
+            if (start == 0) (page(0) as HomePage).onFirstLoad = { liftCurtain() }
+            else content.postDelayed({ liftCurtain() }, 400)
+        }
         show(start)
         content.post { if (!pages[start]!!.focusContent()) navItems[start].requestFocus() }
         content.postDelayed({ (page(2) as BrowsePage).preload() }, 3000)
@@ -86,6 +92,47 @@ class MainActivity : FragmentActivity() {
         p.view.animate().alpha(1f).translationX(0f).setDuration(200)
             .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         p.onShown()
+    }
+
+    private var curtain: LaunchCurtain? = null
+    private var curtainAt = 0L
+
+    /** Covers the screen with the launch logo until Home has something to show. */
+    private fun raiseCurtain() {
+        val c = LaunchCurtain(this)
+        (window.decorView as ViewGroup).addView(c, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        curtain = c
+        curtainAt = SystemClock.uptimeMillis()
+        findViewById<View>(R.id.navLogo).alpha = 0f
+        // Never wait on a slow network for more than a few seconds.
+        content.postDelayed({ liftCurtain() }, 6_000)
+    }
+
+    /**
+     * The logo flies into its place in the side menu, the menu items slide in after it one by one,
+     * and the page rises into place.
+     */
+    private fun liftCurtain() {
+        val c = curtain ?: return
+        val wait = 650 - (SystemClock.uptimeMillis() - curtainAt)
+        if (wait > 0) {
+            content.postDelayed({ liftCurtain() }, wait)
+            return
+        }
+        curtain = null
+        val logo = findViewById<View>(R.id.navLogo)
+        val loc = IntArray(2).also { logo.getLocationInWindow(it) }
+        c.reveal(android.graphics.Rect(loc[0], loc[1], loc[0] + logo.width, loc[1] + logo.height)) { logo.alpha = 1f }
+        if (motionOff()) return
+        val ease = android.view.animation.DecelerateInterpolator(2f)
+        navItems.forEachIndexed { i, v ->
+            v.alpha = 0f
+            v.translationX = -dp(28).toFloat()
+            v.animate().alpha(1f).translationX(0f).setStartDelay(300L + i * 55L).setDuration(380).setInterpolator(ease).start()
+        }
+        content.alpha = 0f
+        content.translationY = dp(32).toFloat()
+        content.animate().alpha(1f).translationY(0f).setStartDelay(380).setDuration(460).setInterpolator(ease).start()
     }
 
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {

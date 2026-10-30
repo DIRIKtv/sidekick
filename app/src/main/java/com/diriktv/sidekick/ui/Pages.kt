@@ -822,7 +822,8 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         android.widget.Toast.makeText(act, "Checking for updates…", android.widget.Toast.LENGTH_SHORT).show()
         act.lifecycleScope.launch {
             try {
-                val release = com.diriktv.sidekick.data.Updater.checkNow()
+                // Debug builds always offer the latest release, so the update screens can be tried.
+                val release = com.diriktv.sidekick.data.Updater.checkNow(force = com.diriktv.sidekick.BuildConfig.DEBUG)
                 if (release != null) UpdateFlow(act, release).show()
                 else android.widget.Toast.makeText(act, "You're on the latest version.", android.widget.Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {

@@ -46,7 +46,7 @@ internal fun Context.motionOff(): Boolean =
     Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
 /** Seconds since the previous frame; a long gap (the view was off screen) counts as one frame. */
-private class FrameClock {
+internal class FrameClock {
     private var last = 0L
     fun tick(): Float {
         val now = System.nanoTime()

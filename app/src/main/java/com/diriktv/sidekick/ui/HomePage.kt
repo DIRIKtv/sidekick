@@ -41,6 +41,9 @@ class HomePage(private val act: FragmentActivity) : MainPage {
     private var lastLoad = 0L
     private var loadedVersion = -1
     private var loading = false
+
+    /** Called once, when Home has its first content (or gave up): the launch curtain lifts then. */
+    var onFirstLoad: (() -> Unit)? = null
     /** Grab focus as soon as content arrives (startup, or a reload while focused here). */
     private var pendingFocus = true
     private val cardWidth = act.dp(200)
@@ -343,6 +346,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             } finally {
                 progress.setVisible(false)
                 loading = false
+                onFirstLoad?.invoke()
+                onFirstLoad = null
             }
         }
     }
