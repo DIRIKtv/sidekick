@@ -3,6 +3,16 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.4.1 · October 29, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Live count on Following:** a red number on the Following heart shows how many channels you follow are live
+- **Unfollow from the player:** the heart in the player now only shows for channels you don't follow yet; turn on Settings → Playback → Unfollow from the player to bring it back
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Loudness equalization, rebuilt:** quiet talking comes up much more and sudden loud moments are caught straight away, instead of everything being turned down after a shout
+- **Faster chat emotes and badges:** a channel's emotes and badges load as soon as you open it, so busy chats show them right away
+
 ## 1.4.0 · October 29, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
