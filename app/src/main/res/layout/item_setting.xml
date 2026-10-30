@@ -37,7 +37,7 @@
             android:textColor="@color/on_focus_primary"
             android:textSize="15sp" />
 
-        <TextView
+        <com.diriktv.sidekick.ui.FocusWeightTextView
             android:id="@+id/summary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

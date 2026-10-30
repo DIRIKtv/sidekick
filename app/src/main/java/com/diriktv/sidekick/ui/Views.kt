@@ -401,3 +401,20 @@ class SoftEdgeBackground(context: Context, private val fadeDp: Int = 64) : andro
     @Deprecated("Deprecated in Java")
     override fun getOpacity() = android.graphics.PixelFormat.OPAQUE
 }
+
+/**
+ * Secondary text that steps up to the medium weight while its row is selected, so it stays easy
+ * to read on the green highlight (the regular weight looks thin there).
+ */
+class FocusWeightTextView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
+    android.widget.TextView(context, attrs) {
+    private var medium: Boolean? = null
+
+    override fun drawableStateChanged() {
+        super.drawableStateChanged()
+        val want = android.R.attr.state_focused in drawableState
+        if (want == medium) return
+        medium = want
+        typeface = AppFonts.get(context, if (want) AppFonts.Weight.MEDIUM else AppFonts.Weight.REGULAR)
+    }
+}
