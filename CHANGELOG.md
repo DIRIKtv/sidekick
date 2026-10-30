@@ -3,6 +3,19 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.6.0 · October 30, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Profile button in the player:** next to LIVE, it takes you straight to the streamer's channel
+- **Richer chat from your phone:** badges, 7TV emotes, and a quick emote bar with the channel's emotes, Kick's and 7TV's
+- **Clock and account in the side menu,** plus a dot on Settings when an update is waiting
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **A new side menu:** it fades softly into the page, and one highlight glides between items
+- **Page transitions:** pages slide in from the direction you move in the menu (turn off in Settings → Appearance)
+- **Livelier screens:** a slow zoom on the Home banner, loading outlines instead of spinners, and a gentle glow on the card you're on
+- **Little moments:** sparks when you follow, a ripple and running total when you skip, search results cascading in, and a pulse on go-live alerts
+
 ## 1.5.1 · October 30, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
