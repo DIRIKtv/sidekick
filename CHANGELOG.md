@@ -3,6 +3,12 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.5.1 · October 30, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **A new opening:** the Sidekick logo glows while Home loads, then flies into the side menu as Home slides into place
+- **A new update screen:** a live progress bar with the size, time left and a check when it's done, instead of a single "Downloading…" line
+
 ## 1.5.0 · October 30, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
