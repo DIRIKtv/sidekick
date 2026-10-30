@@ -3,6 +3,22 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.0 · October 30, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Arrange chat your way, per channel:** in the player, Chat → Customize layout lets you put chat on the left or right, beside or over the video, and change its width, height and position with the remote. Each channel remembers its own layout, or press ☰ to make it the default
+- **Pinned messages, polls and predictions** show above chat, with live results
+- **Message spacing and emote size** for chat
+- **Quality button** in the player, showing the quality you're watching
+- **Progress line** along the bottom of past broadcasts while the controls are hidden
+- **Resume or start over** when you reopen a past broadcast you didn't finish
+- **Card size** for Home: small, medium or large
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Faster:** the app opens quicker, streams start sooner when you've been resting on them, and Home loads rows as you scroll to them
+- **Lighter on memory,** especially on smaller Fire TV sticks
+- **Clearer toggles** on the selected setting
+
 ## 1.6.3 · October 30, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
