@@ -385,8 +385,9 @@ class LiquidToggle @JvmOverloads constructor(context: Context, attrs: AttributeS
 
         val restTrack = blend(trackOff, trackOn, on)
         val restThumb = blend(thumbOff, thumbOn, on)
-        val focusTrack = blend(0x40000000, context.getColor(R.color.bg), on)
-        val focusThumb = blend(0x99000000.toInt(), trackOn, on)
+        // On the green highlight: a solid dark track, with a grey knob for off and a green one for on.
+        val focusTrack = context.getColor(R.color.bg)
+        val focusThumb = blend(thumbOff, trackOn, on)
         fill.color = blend(restTrack, focusTrack, focus)
         rect.set(0f, 0f, w, h)
         canvas.drawRoundRect(rect, h / 2, h / 2, fill)
