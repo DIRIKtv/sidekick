@@ -138,3 +138,5 @@ Release builds are signed with `keystore/sidekick-release.jks`, configured by `k
 ## License
 
 [MIT](LICENSE) © DIRIKtv
+
+Icons from [Phosphor Icons](https://phosphoricons.com) — MIT © 2023 Phosphor Icons.
