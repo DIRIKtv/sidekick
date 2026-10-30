@@ -3,6 +3,15 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.6.1 · October 30, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Settings sections:** the highlight glides between sections, like the side menu
+- **Smoother side menu edge:** it now blends into the page without a visible line
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- **Watch live button:** on a channel page, its rounded end no longer gets cut off when selected
+
 ## 1.6.0 · October 30, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
