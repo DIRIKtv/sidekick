@@ -3,6 +3,11 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.9 · October 31, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Updated video player:** Sidekick now uses Media3 1.11 (up from 1.8), with three releases' worth of playback and streaming fixes from Google
+
 ## 1.7.8 · October 31, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
