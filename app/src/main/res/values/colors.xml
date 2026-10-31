@@ -6,6 +6,10 @@
     <color name="surface">#16191C</color>
     <color name="surface2">#24272C</color>
     <color name="surface3">#2F3238</color>
+    <!-- The app's surface style: dark glass with a fine light edge (the player's header card). -->
+    <color name="glass">#D9141719</color>
+    <color name="glass_solid">#F2141719</color>
+    <color name="glass_edge">#1FFFFFFF</color>
     <color name="text_primary">#EFEFF1</color>
     <color name="text_secondary">#A9ADB4</color>
     <color name="live_red">#E91916</color>

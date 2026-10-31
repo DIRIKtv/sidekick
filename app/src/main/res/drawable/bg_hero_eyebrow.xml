@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- LIVE · Following on the Home banner. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#B3000000"/><corners android:radius="99dp"/>
+    <solid android:color="@color/glass"/>
+    <stroke android:width="1dp" android:color="@color/glass_edge"/>
+    <corners android:radius="99dp"/>
 </shape>

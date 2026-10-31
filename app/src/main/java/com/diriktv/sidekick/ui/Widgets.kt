@@ -431,7 +431,11 @@ class SearchPill @JvmOverloads constructor(context: Context, attrs: AttributeSet
     private var wv = 0f
     private var typingUntil = 0L
 
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.surface2) }
+    // The app's dark glass, with its fine edge (green while typing).
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.glass) }
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = px(1f); color = context.getColor(R.color.glass_edge)
+    }
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = px(2f); color = context.getColor(R.color.kick_green)
     }
@@ -504,11 +508,10 @@ class SearchPill @JvmOverloads constructor(context: Context, attrs: AttributeSet
         canvas.clipPath(clip)
         super.dispatchDraw(canvas)
         canvas.restore()
-        if (field.hasFocus()) {
-            val r = ring.strokeWidth / 2
-            rect.inset(r, r)
-            canvas.drawRoundRect(rect, h / 2 - r, h / 2 - r, ring)
-        }
+        val outline = if (field.hasFocus()) ring else edge
+        val r = outline.strokeWidth / 2
+        rect.inset(r, r)
+        canvas.drawRoundRect(rect, h / 2 - r, h / 2 - r, outline)
 
         // The lens, at an inset that centres it in the circle and pads it in the field.
         val size = h * 0.42f

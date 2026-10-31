@@ -13,13 +13,21 @@ import com.diriktv.sidekick.R
 
 /**
  * The one highlight behind the side menu's items. It glides to the focused item (green) or rests
- * on the current page (grey) when focus is out in the page, easing to a stop without overshoot.
+ * on the current page (dark glass with a fine edge, like the app's cards) when focus is out in
+ * the page, easing to a stop without overshoot.
  */
 class NavIndicator @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = context.dp(1).toFloat()
+    }
+    private val edgeColor = context.getColor(R.color.glass_edge)
+    /** How much of the resting edge shows: 1 resting, 0 focused (solid green needs no edge). */
+    private var edge = 1f
     private val rect = RectF()
     private val focusedColor = context.getColor(R.color.kick_green)
-    private val restingColor = context.getColor(R.color.surface2)
+    private val restingColor = context.getColor(R.color.glass)
     private val radius = context.dp(10).toFloat()
     private val argb = ArgbEvaluator()
 
@@ -44,11 +52,14 @@ class NavIndicator @JvmOverloads constructor(context: Context, attrs: AttributeS
         if (!animate || top < 0 || context.motionOff()) {
             top = toTop
             color = toColor
+            edge = if (focused) 0f else 1f
             invalidate()
             return
         }
         val fromTop = top
         val fromColor = color
+        val fromEdge = edge
+        val toEdge = if (focused) 0f else 1f
         anim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 240
             interpolator = DecelerateInterpolator(2f)
@@ -56,6 +67,7 @@ class NavIndicator @JvmOverloads constructor(context: Context, attrs: AttributeS
                 val f = it.animatedValue as Float
                 top = fromTop + (toTop - fromTop) * f
                 color = argb.evaluate(f, fromColor, toColor) as Int
+                edge = fromEdge + (toEdge - fromEdge) * f
                 invalidate()
             }
             start()
@@ -74,5 +86,12 @@ class NavIndicator @JvmOverloads constructor(context: Context, attrs: AttributeS
         paint.color = color
         rect.set(itemLeft, top, if (itemRight > itemLeft) itemRight else width.toFloat(), top + itemHeight)
         canvas.drawRoundRect(rect, radius, radius, paint)
+        if (edge > 0f) {
+            edgePaint.color = edgeColor
+            edgePaint.alpha = (android.graphics.Color.alpha(edgeColor) * edge).toInt()
+            val inset = edgePaint.strokeWidth / 2
+            rect.inset(inset, inset)
+            canvas.drawRoundRect(rect, radius - inset, radius - inset, edgePaint)
+        }
     }
 }

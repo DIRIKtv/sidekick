@@ -51,7 +51,11 @@ internal class EndCard(private val act: PlayerActivity) {
     private val nextCard = LinearLayout(act).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        background = GradientDrawable().apply { setColor(act.getColor(R.color.surface)); cornerRadius = act.dp(18).toFloat() }
+        background = GradientDrawable().apply {
+            setColor(act.getColor(R.color.glass))
+            setStroke(act.dp(1), act.getColor(R.color.glass_edge))
+            cornerRadius = act.dp(22).toFloat()
+        }
         setPadding(act.dp(14), act.dp(14), act.dp(22), act.dp(14))
     }
     private val thumb = ImageView(act).apply {

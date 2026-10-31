@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Buttons with a label: dark glass at rest, solid green with focus. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android"
     android:enterFadeDuration="130"
     android:exitFadeDuration="130">
@@ -6,6 +7,6 @@
         <shape><solid android:color="@color/kick_green"/><corners android:radius="24dp"/></shape>
     </item>
     <item>
-        <shape><solid android:color="@color/surface2"/><corners android:radius="24dp"/></shape>
+        <shape><solid android:color="@color/glass"/><stroke android:width="1dp" android:color="@color/glass_edge"/><corners android:radius="24dp"/></shape>
     </item>
 </selector>

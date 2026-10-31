@@ -120,8 +120,8 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(act.getColor(R.color.surface2))
-                cornerRadius = act.dp(14).toFloat()
+                setColor(act.getColor(R.color.glass_solid))
+                cornerRadius = act.dp(18).toFloat()
                 setStroke(act.dp(1), act.getColor(R.color.kick_green_dim))
             }
             setPadding(act.dp(14), act.dp(12), act.dp(18), act.dp(12))
