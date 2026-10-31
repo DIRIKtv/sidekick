@@ -3,6 +3,11 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.8.3 · October 31, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Player buttons match the title card:** dark glass with a fine outline, so they're easy to see even over bright video. Chat shows a green ring while it's on
+
 ## 1.8.2 · October 31, 2026
 
 ### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
