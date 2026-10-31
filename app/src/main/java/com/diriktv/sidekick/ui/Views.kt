@@ -2,6 +2,7 @@ package com.diriktv.sidekick.ui
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -40,20 +41,81 @@ class ContentFrame @JvmOverloads constructor(context: Context, attrs: AttributeS
     }
 }
 
+/**
+ * A list that remembers which item last had focus. When focus comes in from outside (another
+ * row, the side menu), that item is the only way in, so rows don't pick whichever card happens
+ * to sit nearest; until something is focused it's the first item.
+ */
+open class MemoryRecyclerView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
+    RecyclerView(context, attrs) {
+    /** Adapter position of the item that last held focus. */
+    var lastFocused = 0
+    /** Told whenever [lastFocused] changes (rows keep it across view recycling). */
+    var onFocusedPosition: ((Int) -> Unit)? = null
+
+    override fun requestChildFocus(child: View?, focused: View?) {
+        super.requestChildFocus(child, focused)
+        val pos = child?.let { getChildAdapterPosition(it) } ?: NO_POSITION
+        if (pos != NO_POSITION && pos != lastFocused) {
+            lastFocused = pos
+            onFocusedPosition?.invoke(pos)
+        }
+    }
+
+    private fun entry(): View? {
+        val lm = layoutManager ?: return null
+        return lm.findViewByPosition(lastFocused)
+            ?: (0 until childCount).map { getChildAt(it) }.minByOrNull { getChildAdapterPosition(it).let { p -> if (p < 0) Int.MAX_VALUE else p } }
+    }
+
+    override fun addFocusables(views: ArrayList<View>, direction: Int, focusableMode: Int) {
+        if (!hasFocus() && descendantFocusability != FOCUS_BLOCK_DESCENDANTS) {
+            val e = entry()
+            if (e != null) {
+                val before = views.size
+                e.addFocusables(views, direction, focusableMode)
+                if (views.size > before) return
+            }
+        }
+        super.addFocusables(views, direction, focusableMode)
+    }
+
+    override fun onRequestFocusInDescendants(direction: Int, previouslyFocusedRect: android.graphics.Rect?): Boolean {
+        entry()?.let { if (it.requestFocus(direction, previouslyFocusedRect)) return true }
+        return super.onRequestFocusInDescendants(direction, previouslyFocusedRect)
+    }
+}
+
 /** Horizontal row that keeps focus inside itself at either end instead of jumping to another row. */
 class HRecyclerView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
-    RecyclerView(context, attrs) {
+    MemoryRecyclerView(context, attrs) {
     /** When true, LEFT at the first item may leave the row (towards the nav rail). */
     var allowLeftExit = true
+
+    private fun atStart(focused: View?) =
+        focused != null && findContainingViewHolder(focused)?.bindingAdapterPosition == 0
+
+    override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
+        if (event == null) return super.dispatchKeyEvent(event)
+        // Holding LEFT stops at the first item; it takes a fresh press to leave the row.
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && event.action == KeyEvent.ACTION_DOWN &&
+            event.repeatCount > 0 && atStart(findFocus())) return true
+        return super.dispatchKeyEvent(event)
+    }
 
     override fun focusSearch(focused: View?, direction: Int): View? {
         val result = super.focusSearch(focused, direction)
         if (focused != null && (direction == View.FOCUS_RIGHT || direction == View.FOCUS_LEFT)) {
             val inside = result != null && findContainingItemView(result) != null
             if (!inside) {
-                if (direction == View.FOCUS_LEFT && allowLeftExit) {
-                    val pos = findContainingViewHolder(focused)?.bindingAdapterPosition ?: -1
-                    if (pos == 0) return result
+                if (direction == View.FOCUS_LEFT && allowLeftExit && atStart(focused)) {
+                    // Out to the side, never sideways into another row (the side menu takes over).
+                    var p = result?.parent
+                    while (p != null) {
+                        if (p is HRecyclerView) return null
+                        p = p.parent
+                    }
+                    return result
                 }
                 return focused
             }

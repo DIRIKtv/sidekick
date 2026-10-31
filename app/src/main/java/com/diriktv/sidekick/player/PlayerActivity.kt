@@ -27,6 +27,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.ui.PlayerView
 import com.diriktv.sidekick.SidekickApp
 import com.diriktv.sidekick.R
+import com.diriktv.sidekick.ui.FocusPreview
 import com.diriktv.sidekick.data.ChannelInfo
 import com.diriktv.sidekick.data.Follows
 import com.diriktv.sidekick.data.HistoryEntry
@@ -163,6 +164,8 @@ class PlayerActivity : FragmentActivity() {
         super.onNewIntent(intent)
         saveVodPosition()
         val previous = slug to vodUrl
+        FocusPreview.take(null)
+        adopted = false
         if (!readIntent(intent)) return
         if (previous == (slug to vodUrl) && (player.playbackState != Player.STATE_IDLE || liveLoad?.isActive == true)) return
         setIntent(intent)
@@ -284,9 +287,23 @@ class PlayerActivity : FragmentActivity() {
         }
     }
 
+    /** True while the player is one handed over from a Home preview, already playing this stream. */
+    private var adopted = false
+
     private fun initPlayer() {
-        leveler = LoudnessLeveler(prefs.loudnessEq)
-        player = PlayerFactory.create(this, leveler = leveler)
+        // OK on a live preview passes its player over, still playing: no reload, just unmute.
+        val handoff = FocusPreview.take(intent.getStringExtra(EXTRA_SLUG).takeIf { intent.getStringExtra(EXTRA_VOD_URL) == null })
+        if (handoff != null) {
+            adopted = true
+            leveler = handoff.leveler.also { it.enabled = prefs.loudnessEq }
+            player = handoff.player
+            player.volume = 1f
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE).build()
+        } else {
+            leveler = LoudnessLeveler(prefs.loudnessEq)
+            player = PlayerFactory.create(this, leveler = leveler)
+        }
         playerView.player = player
 
         player.addListener(object : Player.Listener {
@@ -365,6 +382,16 @@ class PlayerActivity : FragmentActivity() {
     private fun playLive(url: String) {
         mode = Mode.LIVE
         livePausedAt = 0
+        if (adopted) {
+            // Already playing (from the Home preview): carry on.
+            adopted = false
+            buffering.setVisible(player.playbackState == Player.STATE_BUFFERING)
+            menu.applyQualityPreference()
+            setSpeed(1f)
+            player.play()
+            updateModeUi()
+            return
+        }
         player.setMediaItem(PlayerFactory.item(url, PlayerFactory.liveConfig(prefs.lowLatency)))
         setSpeed(1f)
         player.prepare()

@@ -12,6 +12,7 @@ import com.diriktv.sidekick.player.PlayerActivity
 
 object Nav {
     fun watchLive(ctx: Context, slug: String) {
+        FocusPreview.handOff(slug)
         ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_SLUG, slug))
     }
 

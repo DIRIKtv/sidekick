@@ -2,6 +2,7 @@ package com.diriktv.sidekick.player
 
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -63,6 +64,8 @@ internal class PlayerControls(private val act: PlayerActivity) {
     private val tooltipLabels: Map<View, () -> String>
 
     init {
+        val transport = act.findViewById<View>(R.id.transport)
+        (transport.parent as View).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> keepTransportClear(transport) }
         btnPlay.setOnClickListener { act.togglePlayPause() }
         btnRewind.setOnClickListener { act.queueSeek(-act.seekStep(), 0) }
         btnForward.setOnClickListener { act.queueSeek(act.seekStep(), 0) }
@@ -204,9 +207,61 @@ internal class PlayerControls(private val act: PlayerActivity) {
     fun updateQuality() {
         val label = if (player.videoFormat == null) "Auto" else act.menu.currentQualityLabel()
         qualityLabel = label
-        val shown = if (compact == true) "" else label
-        if (btnQuality.text != shown) btnQuality.text = shown
+        val shown = if (compact == true) "" else fitQuality(label)
+        if (btnQuality.text != shown) {
+            btnQuality.text = shown
+            if (compact != true) {
+                // Icon only: centred, with even padding.
+                btnQuality.compoundDrawablePadding = if (shown.isEmpty()) 0 else act.dp(8)
+                btnQuality.setPadding(act.dp(14), 0, act.dp(if (shown.isEmpty()) 14 else 18), 0)
+            }
+        }
         btnQuality.setVisible(act.menu.videoTracks().size > 1 || player.videoFormat != null)
+    }
+
+    /**
+     * The longest form of [label] whose pill leaves a gap before the play buttons in the middle:
+     * "Auto • 1080p60", then "1080p60", then just the icon. The right-hand buttons grow towards
+     * the centre, so a long label with captions showing would otherwise run into them.
+     */
+    private fun fitQuality(label: String): String {
+        val actions = btnQuality.parent as ViewGroup
+        val transport = act.findViewById<View>(R.id.transport)
+        val row = transport.parent as View
+        if (row.width == 0) return label
+        var others = 0
+        for (i in 0 until actions.childCount) {
+            val c = actions.getChildAt(i)
+            if (c === btnQuality || c.visibility != View.VISIBLE) continue
+            others += c.width + (c.layoutParams as ViewGroup.MarginLayoutParams).marginStart
+        }
+        val lp = btnQuality.layoutParams as ViewGroup.MarginLayoutParams
+        val room = row.width / 2 - transport.width / 2 - act.dp(24) - others - lp.marginStart
+        val icon = btnQuality.compoundDrawablesRelative[0]?.intrinsicWidth ?: 0
+        fun width(t: String) = act.dp(14) + icon + act.dp(8) + btnQuality.paint.measureText(t).toInt() + act.dp(18)
+        val short = label.substringAfter("• ")
+        return listOf(label, short).firstOrNull { width(it) <= room } ?: ""
+    }
+
+    /**
+     * The play buttons sit in the middle unless the groups on either side reach them (chat
+     * beside the video, with every button showing); then they move into the middle of the gap
+     * that's left, so nothing overlaps.
+     */
+    private fun keepTransportClear(transport: View) {
+        val left = btnLive.parent as View
+        val actions = btnQuality.parent as View
+        val gap = act.dp(16)
+        val from = left.right + gap
+        val to = actions.left - gap
+        val half = transport.width / 2f
+        val centre = (transport.left + transport.right) / 2f
+        val target = when {
+            centre - half >= from && centre + half <= to -> centre
+            else -> (from + to) / 2f
+        }
+        val dx = target - centre
+        if (transport.translationX != dx) transport.translationX = dx
     }
 
     /** The thin line along the bottom: past broadcasts and rewound live, controls hidden. */
@@ -256,6 +311,8 @@ internal class PlayerControls(private val act: PlayerActivity) {
             width = if (on) small else LinearLayout.LayoutParams.WRAP_CONTENT
         }
         btnQuality.setBackgroundResource(if (on) R.drawable.bg_ctrl_button else R.drawable.bg_ctrl_pill)
+        // A fresh selector starts mid-fade; settle it, or it can stay see-through until focused.
+        btnQuality.jumpDrawablesToCurrentState()
         btnQuality.compoundDrawablePadding = if (on) 0 else act.dp(8)
         btnQuality.setPadding(if (on) act.dp(11) else act.dp(14), 0, if (on) 0 else act.dp(18), 0)
         updateQuality()

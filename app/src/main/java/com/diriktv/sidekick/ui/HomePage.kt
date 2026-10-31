@@ -42,7 +42,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
     }
 
     private val prefs = Prefs(act)
-    private val list = RecyclerView(act)
+    private val list = MemoryRecyclerView(act)
     private val status = TextView(act)
     private val progress = SkeletonView(act)
     private val rows = mutableListOf<Row>()
@@ -89,6 +89,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         var done = false
         var busy = false
         var scrollState: Parcelable? = null
+        /** The card that last had focus, so coming back to the row lands on it. */
+        var focusPos = 0
         val adapter = GridAdapter(
             cardWidthPx = cardWidth,
             onClick = { Nav.onCardClick(act, it) },
@@ -158,6 +160,10 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             val rv = holder.itemView.findViewById<RecyclerView>(R.id.rowList)
             rv.adapter = row.adapter
             rv.layoutManager?.onRestoreInstanceState(row.scrollState)
+            (rv as MemoryRecyclerView).apply {
+                lastFocused = row.focusPos
+                onFocusedPosition = { row.focusPos = it }
+            }
             if (row.adapter.itemCount == 0) row.loadMore()
             holder.itemView.tag = row
         }
@@ -222,7 +228,9 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             val lift = if (has && !act.motionOff()) 1.02f else 1f
             hero.animate().scaleX(lift).scaleY(lift).translationZ(if (has) act.dp(10).toFloat() else 0f)
                 .setDuration(200).setInterpolator(DecelerateInterpolator()).start()
-            heroItems.getOrNull(heroIndex)?.let { FocusPreview.onFocus(hero, it.slug, has, maxHeight = 720) }
+            heroItems.getOrNull(heroIndex)?.let { previewHero(hero, it.slug, has) }
+            // Back on the thumbnail: the drift picks up again.
+            if (!has) v.findViewById<View>(R.id.thumbFrame).kenBurns(heroIndex)
         }
         v.findViewById<TextView>(R.id.heroHint).alpha = 0f
         // The icons sit beside small text, so they're drawn smaller than their 24dp.
@@ -234,6 +242,15 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         v.findViewById<TextView>(R.id.heroWatch).icon(15)
         v.findViewById<TextView>(R.id.heroViewers).icon(15)
         v.findViewById<TextView>(R.id.heroUptime).icon(14)
+    }
+
+    /** The live preview in the hero; the slow zoom eases back out once the video shows. */
+    private fun previewHero(hero: View, slug: String, focused: Boolean) {
+        FocusPreview.onFocus(hero, slug, focused, maxHeight = 720) {
+            hero.findViewById<View>(R.id.thumbFrame).animate().cancel()
+            hero.findViewById<View>(R.id.thumbFrame).animate().scaleX(1f).scaleY(1f).setDuration(350)
+                .setInterpolator(DecelerateInterpolator()).start()
+        }
     }
 
     private fun bindHero(animate: Boolean, direction: Int = 1) {
@@ -267,7 +284,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             setVisible(heroItems.size > 1)
         }
         val hero = v.findViewById<View>(R.id.hero)
-        if (hero.isFocused) FocusPreview.onFocus(hero, s.slug, true, maxHeight = 720)
+        if (hero.isFocused) previewHero(hero, s.slug, true)
         if (animate) {
             content.forEach {
                 it.alpha = 0f
@@ -393,15 +410,9 @@ class HomePage(private val act: FragmentActivity) : MainPage {
     }
 
     override fun focusContent(): Boolean {
-        val lm = list.layoutManager as LinearLayoutManager
-        val first = lm.findFirstCompletelyVisibleItemPosition().coerceAtLeast(0)
-        val holder = list.findViewHolderForAdapterPosition(first) ?: return false
-        holder.itemView.findViewById<View?>(R.id.hero)?.let { return it.requestFocus() }
-        val inner = holder.itemView.findViewById<RecyclerView>(R.id.rowList) ?: return false
-        val innerLm = inner.layoutManager as LinearLayoutManager
-        val target = innerLm.findViewByPosition(innerLm.findFirstCompletelyVisibleItemPosition().coerceAtLeast(0))
-            ?: inner.getChildAt(0)
-        return target?.requestFocus() ?: false
+        // Back to the row (and card) focus last left, or the hero / first row the first time.
+        if (list.childCount == 0) return false
+        return list.requestFocus()
     }
 }
 
