@@ -15,7 +15,7 @@ val appVersionCode = 10707
 
 android {
     namespace = "com.diriktv.sidekick"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.diriktv.sidekick"
@@ -84,18 +84,18 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
 
-    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     // Installs the startup profile (src/main/baseline-prof.txt) on sideloaded installs too.
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
-    implementation("androidx.fragment:fragment-ktx:1.8.8")
+    implementation("androidx.fragment:fragment-ktx:1.9.1")
     implementation("androidx.recyclerview:recyclerview:1.4.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt.coil3:coil:3.4.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:3.5.4")
 
     // Debug builds only: watches for leaked screens and views and reports them to logcat
     // (adb logcat -s LeakCanary). Never part of the release APK.
@@ -103,7 +103,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     // The real org.json, so tests can parse Kick's JSON (android.jar only has stubs).
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
 }
 
 // ./gradlew dist  ->  dist/Sidekick-<version>.apk, ready to sideload.

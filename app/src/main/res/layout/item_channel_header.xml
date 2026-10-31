@@ -2,8 +2,11 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:clipChildren="false"
+    android:clipToPadding="false"
     android:orientation="vertical"
-    android:paddingTop="60dp">
+    android:paddingTop="60dp"
+    android:paddingBottom="18dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -58,7 +61,7 @@
         android:textColor="@color/text_secondary"
         android:textSize="14sp" />
 
-    <!-- Unclipped so a focused button can grow without its ends being cut off. -->
+    <!-- Unclipped (as is the header) so a focused button can grow without its edges being cut off. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
