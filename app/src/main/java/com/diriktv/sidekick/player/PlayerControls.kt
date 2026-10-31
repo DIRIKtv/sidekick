@@ -183,6 +183,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
             }
         }
         act.chat.onControlsShown()
+        act.captions.lift(true, act.dp(150).toFloat())
         moveOsd()
         updateProgress()
         updateMeta()
@@ -206,6 +207,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         seekBubble.visibility = View.INVISIBLE
         updateMini()
         root.fadeOut(200)
+        act.captions.lift(false, 0f)
         moveOsd()
         tooltip.visibility = View.INVISIBLE
         act.chat.onControlsHidden()

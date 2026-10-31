@@ -90,6 +90,7 @@ class PlayerActivity : FragmentActivity() {
 
     private lateinit var root: View
     private lateinit var playerView: PlayerView
+    internal lateinit var captions: Captions
     private lateinit var buffering: View
     internal lateinit var stats: TextView
     private lateinit var errorView: View
@@ -180,6 +181,7 @@ class PlayerActivity : FragmentActivity() {
         if (previous == (slug to vodUrl) && (player.playbackState != Player.STATE_IDLE || liveLoad?.isActive == true)) return
         setIntent(intent)
         endCard.hide()
+        captions.reset()
         lastRaid = null
         chat.reset()
         channel = null
@@ -288,6 +290,9 @@ class PlayerActivity : FragmentActivity() {
     private fun bindViews() {
         root = findViewById(R.id.root)
         playerView = findViewById(R.id.playerView)
+        // Captions are drawn by Captions.kt, not the player's own subtitle view.
+        playerView.subtitleView?.visibility = View.GONE
+        captions = Captions(this, findViewById(R.id.captions))
         buffering = findViewById(R.id.buffering)
         stats = findViewById(R.id.stats)
         errorView = findViewById(R.id.errorView)
@@ -318,6 +323,7 @@ class PlayerActivity : FragmentActivity() {
             player = PlayerFactory.create(this, leveler = leveler)
         }
         playerView.player = player
+        player.addListener(captions)
 
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {

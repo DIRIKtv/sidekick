@@ -56,6 +56,25 @@
             android:textSize="12sp"
             android:visibility="gone" />
 
+        <!-- Captions (see Captions.kt): the last two lines of what's being said, on dark glass -->
+        <TextView
+            android:id="@+id/captions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginStart="48dp"
+            android:layout_marginEnd="48dp"
+            android:layout_marginBottom="56dp"
+            android:background="@drawable/bg_player_card"
+            android:gravity="center"
+            android:maxWidth="1000dp"
+            android:paddingStart="22dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="22dp"
+            android:paddingBottom="12dp"
+            android:textColor="#FFFFFF"
+            android:visibility="invisible" />
+
         <!-- Error: an icon, what happened in plain words, and what you can do about it -->
         <LinearLayout
             android:id="@+id/errorView"

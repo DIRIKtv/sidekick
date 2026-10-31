@@ -12,14 +12,21 @@
     <FrameLayout
         android:layout_width="96dp"
         android:layout_height="96dp"
-        android:duplicateParentState="true"
-        android:foreground="@drawable/fg_circle">
+        android:duplicateParentState="true">
 
         <com.diriktv.sidekick.ui.AspectImageView
             android:id="@+id/avatar"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:padding="6dp" />
+
+        <!-- The focus ring (it pulses), under the LIVE badge rather than drawn over it -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:duplicateParentState="true"
+            android:foreground="@drawable/fg_circle"
+            android:importantForAccessibility="no" />
 
         <TextView
             android:id="@+id/liveBadge"

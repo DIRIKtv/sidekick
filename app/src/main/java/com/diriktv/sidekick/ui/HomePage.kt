@@ -68,6 +68,17 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         )
         probe.measuredHeight + lp.topMargin + lp.bottomMargin + act.dp(16)
     }
+    /** The round channel cards (Recently watched) are taller than a stream card: avatar plus two lines. */
+    private val circleRowHeight: Int by lazy {
+        val probe = FrameLayout(act).inflate(R.layout.item_channel_card)
+        val lp = probe.layoutParams as ViewGroup.MarginLayoutParams
+        probe.measure(
+            View.MeasureSpec.makeMeasureSpec(cardWidth * 3 / 4, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        // Room for the focus zoom too.
+        probe.measuredHeight + lp.topMargin + lp.bottomMargin + act.dp(20)
+    }
 
     // Hero state
     private var heroItems: List<LiveStream> = emptyList()
@@ -85,6 +96,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         val title: String,
         /** Built from this TV's watch history rather than loaded from Kick. */
         val local: Boolean = false,
+        /** Round channel cards rather than stream cards. */
+        val circles: Boolean = false,
         val loader: suspend (String?) -> Page<GridItem>,
     ) {
         var cursor: String? = null
@@ -160,6 +173,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             val row = rows[position - heroOffset]
             holder.itemView.findViewById<TextView>(R.id.rowTitle).text = row.title
             val rv = holder.itemView.findViewById<RecyclerView>(R.id.rowList)
+            val height = if (row.circles) circleRowHeight else rowListHeight
+            if (rv.layoutParams.height != height) rv.layoutParams = rv.layoutParams.apply { this.height = height }
             rv.adapter = row.adapter
             rv.layoutManager?.onRestoreInstanceState(row.scrollState)
             (rv as MemoryRecyclerView).apply {
@@ -344,7 +359,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         val cont = continueWatching()
         if (cont.isNotEmpty()) add(Row("Continue watching", local = true) { Page(cont, null) })
         val recent = recentlyWatched()
-        if (recent.isNotEmpty()) add(Row("Recently watched", local = true) { Page(recent, null) })
+        if (recent.isNotEmpty()) add(Row("Recently watched", local = true, circles = true) { Page(recent, null) })
     }
 
     /** After watching something, update just the history rows instead of reloading Home. */
