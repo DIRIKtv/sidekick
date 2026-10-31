@@ -185,7 +185,8 @@ class Prefs(context: Context) {
         slug?.let { sp.getString("chat_layout_${it.lowercase()}", null) }?.let { ChatLayout.parse(it) }
             ?: ChatLayout(mode = chatMode, side = chatSide, width = chatWidth,
                 height = sp.getInt("chat_height", 100), top = sp.getInt("chat_top", 100),
-                x = sp.getInt("chat_x", if (chatSide == "left") 0 else 100), backing = sp.getInt("chat_backing", 60))
+                x = sp.getInt("chat_x", if (chatSide == "left") 0 else 100), backing = sp.getInt("chat_backing", 60),
+                textSize = sp.getInt("chat_layout_text", 0))
 
     fun saveChatLayout(slug: String, layout: ChatLayout) =
         sp.edit().putString("chat_layout_${slug.lowercase()}", layout.encode()).apply()
@@ -196,8 +197,11 @@ class Prefs(context: Context) {
         chatSide = layout.side
         chatWidth = layout.width
         sp.edit().putInt("chat_height", layout.height).putInt("chat_top", layout.top)
-            .putInt("chat_x", layout.x).putInt("chat_backing", layout.backing).apply()
+            .putInt("chat_x", layout.x).putInt("chat_backing", layout.backing)
+            .putInt("chat_layout_text", layout.textSize).apply()
     }
+
+    fun hasChatLayout(slug: String) = sp.contains("chat_layout_${slug.lowercase()}")
 
     fun clearChatLayout(slug: String) = sp.edit().remove("chat_layout_${slug.lowercase()}").apply()
 
@@ -372,12 +376,15 @@ data class ChatLayout(
     val x: Int = if (side == "left") 0 else 100,
     /** Over the video: how dark the chat's backing is, 0 (none) to 100. */
     val backing: Int = 60,
+    /** Message text size in sp for this layout; 0 follows the app-wide chat text size. */
+    val textSize: Int = 0,
 ) {
     val beside get() = mode == "side"
     val left get() = side == "left"
 
     fun encode(): String = JSONObject().put("mode", mode).put("side", side).put("width", width)
-        .put("height", height).put("top", top).put("x", x).put("backing", backing).toString()
+        .put("height", height).put("top", top).put("x", x).put("backing", backing)
+        .put("textSize", textSize).toString()
 
     companion object {
         const val MIN_WIDTH = 200
@@ -385,13 +392,15 @@ data class ChatLayout(
         /** Over the video chat can be smaller, like the little chat boxes streamers put on screen. */
         const val MIN_OVERLAY_WIDTH = 140
         const val MIN_HEIGHT = 15
+        const val MIN_TEXT = 10
+        const val MAX_TEXT = 24
 
         fun parse(s: String): ChatLayout? = runCatching {
             val o = JSONObject(s)
             val side = o.optString("side", "right")
             ChatLayout(o.optString("mode", "side"), side, o.optInt("width", 300),
                 o.optInt("height", 100), o.optInt("top", 100),
-                o.optInt("x", if (side == "left") 0 else 100), o.optInt("backing", 60))
+                o.optInt("x", if (side == "left") 0 else 100), o.optInt("backing", 60), o.optInt("textSize", 0))
         }.getOrNull()
     }
 }

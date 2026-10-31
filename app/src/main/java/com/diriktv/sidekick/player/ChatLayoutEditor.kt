@@ -22,11 +22,11 @@ import com.diriktv.sidekick.ui.font
  * Arranging chat with the remote, live on the stream: OK steps through the tools, the arrows
  * use the current one, Back saves it for this channel and ☰ makes it the default for every
  * channel. Beside the video chat takes a side and a width; over the video it can go anywhere,
- * at any size, with as much or as little dark backing as you like. A card at the top of the
+ * at any size and text size, as see-through as you like. A card at the top of the
  * screen says what the arrows do right now, and a dashed outline shows the chat's edges.
  */
 internal class ChatLayoutEditor(private val act: PlayerActivity) {
-    private enum class Tool(val title: String) { MODE("Layout"), MOVE("Move"), SIZE("Size"), BACKING("Backing") }
+    private enum class Tool(val title: String) { MODE("Layout"), MOVE("Move"), SIZE("Size"), TEXT("Text"), CLEAR("Transparency") }
 
     private var tool = Tool.MODE
     private val card = LinearLayout(act).apply {
@@ -36,16 +36,16 @@ internal class ChatLayoutEditor(private val act: PlayerActivity) {
         setPadding(act.dp(22), act.dp(12), act.dp(22), act.dp(12))
         elevation = act.dp(10).toFloat()
     }
-    private val tabs = TextView(act).apply {
-        textSize = 15f
-        font(AppFonts.Weight.BOLD)
-        setTextColor(act.getColor(R.color.text_primary))
+    /** One chip per tool; the one the arrows work on is solid green. */
+    private val tabs = LinearLayout(act).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
     }
     private val hint = TextView(act).apply {
         textSize = 13f
         font(AppFonts.Weight.REGULAR)
         setTextColor(act.getColor(R.color.text_secondary))
-        setPadding(0, act.dp(4), 0, 0)
+        setPadding(0, act.dp(8), 0, 0)
         gravity = Gravity.CENTER
     }
     private val panel: View by lazy { act.findViewById(R.id.chatPanel) }
@@ -93,21 +93,43 @@ internal class ChatLayoutEditor(private val act: PlayerActivity) {
         close("Chat layout saved for ${act.channel?.username ?: "this channel"}")
     }
 
-    /** Beside the video only the layout and the width can change. */
-    private fun tools(l: ChatLayout) = if (l.beside) listOf(Tool.MODE, Tool.SIZE) else Tool.entries
+    /** Beside the video it keeps the full height and its own backing: layout, width and text only. */
+    private fun tools(l: ChatLayout) = if (l.beside) listOf(Tool.MODE, Tool.SIZE, Tool.TEXT) else Tool.entries
 
     private fun refresh() {
         val l = act.chat.layout
         val tools = tools(l)
         if (tool !in tools) tool = Tool.MODE
-        tabs.text = tools.joinToString("     ") { if (it == tool) "●  ${it.title}" else it.title }
+        renderTabs(tools)
         hint.text = when (tool) {
             Tool.MODE -> "▲ ▼  ${if (l.beside) "Beside the video" else "Over the video"}     ◀ ▶  " +
                 if (l.beside) (if (l.left) "Left side" else "Right side") else "jump to an edge"
             Tool.MOVE -> "◀ ▶ ▲ ▼  move it anywhere (hold to go faster)"
             Tool.SIZE -> if (l.beside) "◀ ▶  width ${l.width}dp" else "◀ ▶  width ${l.width}dp     ▲ ▼  height ${l.height}%"
-            Tool.BACKING -> "◀ ▶  backing ${if (l.backing == 0) "none" else "${l.backing}%"}"
+            Tool.TEXT -> "◀ ▶  text size ${textSize(l)}sp  (smaller fits more chat)"
+            Tool.CLEAR -> "◀ ▶  transparency ${100 - l.backing}%${if (l.backing == 0) " (no backing)" else ""}"
         } + "\nOK next  •  BACK save for ${act.channel?.username ?: "this channel"}  •  ☰ save for all channels"
+    }
+
+    private fun textSize(l: ChatLayout) = if (l.textSize > 0) l.textSize else act.prefs.chatTextSize
+
+    private fun renderTabs(tools: List<Tool>) {
+        tabs.removeAllViews()
+        tools.forEachIndexed { i, t ->
+            val on = t == tool
+            tabs.addView(TextView(act).apply {
+                text = t.title
+                textSize = 15f
+                font(if (on) AppFonts.Weight.BLACK else AppFonts.Weight.MEDIUM)
+                setTextColor(if (on) 0xFF0B0E0F.toInt() else act.getColor(R.color.text_secondary))
+                setPadding(act.dp(14), act.dp(6), act.dp(14), act.dp(6))
+                if (on) background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(act.getColor(R.color.kick_green))
+                    cornerRadius = act.dp(99).toFloat()
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { if (i > 0) marginStart = act.dp(6) })
+        }
     }
 
     private fun update(l: ChatLayout, animate: Boolean = false) {
@@ -151,7 +173,9 @@ internal class ChatLayoutEditor(private val act: PlayerActivity) {
                         val min = if (l.beside) ChatLayout.MIN_WIDTH else ChatLayout.MIN_OVERLAY_WIDTH
                         update(l.copy(width = (l.width + dir * (if (fast) 20 else 10)).coerceIn(min, ChatLayout.MAX_WIDTH)))
                     }
-                    Tool.BACKING -> update(l.copy(backing = (l.backing + dir * 10).coerceIn(0, 100)))
+                    Tool.TEXT -> update(l.copy(textSize = (textSize(l) + dir).coerceIn(ChatLayout.MIN_TEXT, ChatLayout.MAX_TEXT)))
+                    // Right makes it more see-through.
+                    Tool.CLEAR -> update(l.copy(backing = (l.backing - dir * 10).coerceIn(0, 100)))
                 }
             }
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
@@ -166,7 +190,7 @@ internal class ChatLayoutEditor(private val act: PlayerActivity) {
                     }
                     Tool.MOVE -> update(l.copy(top = (l.top + dir * (if (fast) 3 else 1)).coerceIn(0, 100)))
                     Tool.SIZE -> if (!l.beside) update(l.copy(height = (l.height - dir * (if (fast) 5 else 2)).coerceIn(ChatLayout.MIN_HEIGHT, 100)))
-                    Tool.BACKING -> Unit
+                    Tool.TEXT, Tool.CLEAR -> Unit
                 }
             }
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU -> Unit

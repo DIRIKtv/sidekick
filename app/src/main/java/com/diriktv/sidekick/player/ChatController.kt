@@ -397,6 +397,9 @@ internal class ChatController(private val act: PlayerActivity) {
         val panelVisible = show && (beside || !act.controls.up)
         panel.setBackgroundColor(if (beside) act.getColor(R.color.chat_bg) else (l.backing * 255 / 100 shl 24))
         adapter.textShadow = !beside && l.backing < 50
+        // The layout may have its own text size: smaller fits more chat in a small box.
+        val textSize = if (l.textSize > 0) l.textSize else prefs.chatTextSize
+        if (adapter.textSizeSp != textSize) setTextSize(textSize)
         // A small see-through chat over the video looks like a streamer's overlay: no title bar.
         act.findViewById<View>(R.id.chatHeader).setVisible(beside || l.backing >= 50)
         act.controls.btnChat.isActivated = show

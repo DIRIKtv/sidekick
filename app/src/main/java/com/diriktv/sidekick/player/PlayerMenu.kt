@@ -213,12 +213,19 @@ internal class PlayerMenu(private val act: PlayerActivity) {
                 act.layoutEditor.show()
             },
             OptionSheet.Item("Filters", value = filterSummary(), submenu = true) { it.push(filtersPage()) },
-            OptionSheet.Item("Text size", value = "${prefs.chatTextSize}sp", submenu = true) { sheet ->
+            OptionSheet.Item("Text size", value = "${act.chat.layout.textSize.takeIf { it > 0 } ?: prefs.chatTextSize}sp", submenu = true) { sheet ->
                 sheet.push(OptionSheet.Page("Chat text size") {
                     Prefs.CHAT_TEXT_SIZES.map { (size, label) ->
                         OptionSheet.Item(label, sub = "viewer: hi chat!", subSizeSp = size.toFloat(),
-                            value = "${size}sp", checked = prefs.chatTextSize == size) { s ->
+                            value = "${size}sp", checked = (act.chat.layout.textSize.takeIf { it > 0 } ?: prefs.chatTextSize) == size) { s ->
                             prefs.chatTextSize = size
+                            // A layout with its own size takes the new one too, so the pick shows.
+                            val l = act.chat.layout
+                            if (l.textSize > 0) {
+                                act.chat.layout = l.copy(textSize = size)
+                                if (prefs.hasChatLayout(act.slug)) prefs.saveChatLayout(act.slug, act.chat.layout)
+                                else prefs.saveDefaultChatLayout(act.chat.layout)
+                            }
                             act.chat.setTextSize(size)
                             s.back()
                         }

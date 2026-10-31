@@ -72,7 +72,11 @@ internal class PlayerControls(private val act: PlayerActivity) {
 
     init {
         val transport = act.findViewById<View>(R.id.transport)
-        (transport.parent as View).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> keepTransportClear(transport) }
+        (transport.parent as View).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            // Fit the quality label to the room first; if it changes, the row is laid out again
+            // straight away, and only then do the play buttons need to know where they go.
+            if (fitQualityNeeded()) transport.post { updateQuality() } else keepTransportClear(transport)
+        }
         btnPlay.setOnClickListener { act.togglePlayPause() }
         btnRewind.setOnClickListener { act.queueSeek(-act.seekStep(), 0) }
         btnForward.setOnClickListener { act.queueSeek(act.seekStep(), 0) }
@@ -224,15 +228,46 @@ internal class PlayerControls(private val act: PlayerActivity) {
         val label = if (player.videoFormat == null) "Auto" else act.menu.currentQualityLabel()
         qualityLabel = label
         val shown = if (compact == true) "" else fitQuality(label)
-        if (btnQuality.text != shown) {
-            btnQuality.text = shown
-            if (compact != true) {
-                // Icon only: centred, with even padding.
-                btnQuality.compoundDrawablePadding = if (shown.isEmpty()) 0 else act.dp(8)
-                btnQuality.setPadding(act.dp(14), 0, act.dp(if (shown.isEmpty()) 14 else 18), 0)
-            }
-        }
+        if (btnQuality.text.toString() != shown || shapedCompact != compact) shapeQuality(shown)
         btnQuality.setVisible(act.menu.videoTracks().size > 1 || player.videoFormat != null)
+    }
+
+    private fun fitQualityNeeded(): Boolean {
+        if (compact == true || btnQuality.visibility != View.VISIBLE) return false
+        return btnQuality.text.toString() != fitQuality(qualityLabel)
+    }
+
+    private val qualityIcon = btnQuality.compoundDrawablesRelative[0]
+    private var shapedCompact: Boolean? = null
+
+    /**
+     * A pill with [text], or with no text a round button exactly like the others: same size,
+     * same icon size, the icon centred.
+     */
+    private fun shapeQuality(text: String) {
+        shapedCompact = compact
+        val on = compact == true
+        val size = act.dp(if (on) 42 else 48)
+        val pad = act.dp(if (on) 11 else 12)
+        val round = text.isEmpty()
+        btnQuality.text = text
+        val lp = btnQuality.layoutParams
+        val w = if (round) size else LinearLayout.LayoutParams.WRAP_CONTENT
+        if (lp.width != w) { lp.width = w; btnQuality.layoutParams = lp }
+        val bg = if (round) R.drawable.bg_ctrl_button else R.drawable.bg_ctrl_pill
+        if (btnQuality.getTag(R.id.btnQuality) != bg) {
+            btnQuality.setBackgroundResource(bg)
+            // A fresh selector starts mid-fade; settle it, or it can stay see-through until focused.
+            btnQuality.jumpDrawablesToCurrentState()
+            btnQuality.setTag(R.id.btnQuality, bg)
+        }
+        qualityIcon?.let {
+            val iconSize = if (round) size - 2 * pad else act.dp(24)
+            it.setBounds(0, 0, iconSize, iconSize)
+            btnQuality.setCompoundDrawablesRelative(it, null, null, null)
+        }
+        btnQuality.compoundDrawablePadding = if (round) 0 else act.dp(8)
+        btnQuality.setPadding(if (round) pad else act.dp(14), 0, if (round) 0 else act.dp(18), 0)
     }
 
     /**
@@ -253,8 +288,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         }
         val lp = btnQuality.layoutParams as ViewGroup.MarginLayoutParams
         val room = row.width / 2 - transport.width / 2 - act.dp(24) - others - lp.marginStart
-        val icon = btnQuality.compoundDrawablesRelative[0]?.intrinsicWidth ?: 0
-        fun width(t: String) = act.dp(14) + icon + act.dp(8) + btnQuality.paint.measureText(t).toInt() + act.dp(18)
+        fun width(t: String) = act.dp(14) + act.dp(24) + act.dp(8) + btnQuality.paint.measureText(t).toInt() + act.dp(18)
         val short = label.substringAfter("• ")
         return listOf(label, short).firstOrNull { width(it) <= room } ?: ""
     }
@@ -324,13 +358,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         // Beside chat there's no room for the label: it becomes a round button like the others.
         btnQuality.layoutParams = (btnQuality.layoutParams as LinearLayout.LayoutParams).apply {
             height = small; marginStart = gap
-            width = if (on) small else LinearLayout.LayoutParams.WRAP_CONTENT
         }
-        btnQuality.setBackgroundResource(if (on) R.drawable.bg_ctrl_button else R.drawable.bg_ctrl_pill)
-        // A fresh selector starts mid-fade; settle it, or it can stay see-through until focused.
-        btnQuality.jumpDrawablesToCurrentState()
-        btnQuality.compoundDrawablePadding = if (on) 0 else act.dp(8)
-        btnQuality.setPadding(if (on) act.dp(11) else act.dp(14), 0, if (on) 0 else act.dp(18), 0)
         updateQuality()
         btnPlay.layoutParams = (btnPlay.layoutParams as LinearLayout.LayoutParams).apply {
             val big = act.dp(if (on) 54 else 64)
