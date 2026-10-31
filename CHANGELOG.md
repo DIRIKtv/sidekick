@@ -3,6 +3,15 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.1 · October 30, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **The Home banner plays the stream:** rest on it for a moment and the channel plays live, muted, right in the banner
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Redesigned Home banner:** the picture fills the whole banner, with a pulsing live badge, a bigger channel name, a tidier one-line title (links and dividers removed), the category as a tag and a proper Watch button
+- **Softer focus on the banner:** it lifts slightly with a green glow instead of a thick outline
+
 ## 1.7.0 · October 30, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
