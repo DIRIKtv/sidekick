@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The round control buttons' look, as a pill for buttons with a label. -->
+<!-- The round player buttons' look, as a pill for buttons with a label. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android"
     android:enterFadeDuration="130"
     android:exitFadeDuration="130">
@@ -7,6 +7,6 @@
         <shape><solid android:color="@color/kick_green"/><corners android:radius="24dp"/></shape>
     </item>
     <item>
-        <shape><solid android:color="#33FFFFFF"/><corners android:radius="24dp"/></shape>
+        <shape><solid android:color="#D9141719"/><stroke android:width="1dp" android:color="#1FFFFFFF"/><corners android:radius="24dp"/></shape>
     </item>
 </selector>

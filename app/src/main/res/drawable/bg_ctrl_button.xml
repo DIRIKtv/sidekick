@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Round player buttons: the header card's dark glass and fine outline; solid green with focus. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android"
     android:enterFadeDuration="130"
     android:exitFadeDuration="130">
@@ -6,9 +7,9 @@
         <shape android:shape="oval"><solid android:color="@color/kick_green"/></shape>
     </item>
     <item android:state_activated="true">
-        <shape android:shape="oval"><solid android:color="#4D53FC18"/></shape>
+        <shape android:shape="oval"><solid android:color="#D9141719"/><stroke android:width="1.5dp" android:color="#9953FC18"/></shape>
     </item>
     <item>
-        <shape android:shape="oval"><solid android:color="#33FFFFFF"/></shape>
+        <shape android:shape="oval"><solid android:color="#D9141719"/><stroke android:width="1dp" android:color="#1FFFFFFF"/></shape>
     </item>
 </selector>
