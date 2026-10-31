@@ -3,6 +3,19 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.2 · October 30, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Instant start from a preview:** pressing OK on a stream that's already previewing (on the Home banner or a card) carries it straight on full screen, no reloading
+- **Rows remember your place:** moving up or down returns to the card you were last on in that row, and coming back from the side menu lands where you left
+- **Banner preview** fills the banner without stretching, and the slow zoom stops once the stream starts
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- Moving down from the Home banner picked a card in the middle of the row instead of the first
+- Holding LEFT at the start of a row could slide down through the rows below
+- Light edges at the corners of the focused Home banner
+- In the player, a long quality label could push the buttons into each other
+
 ## 1.7.1 · October 30, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
