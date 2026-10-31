@@ -135,6 +135,16 @@ class Prefs(context: Context) {
         get() = sp.getString("raid_mode", "ask") ?: "ask"
         set(v) = sp.edit().putString("raid_mode", v).apply()
 
+    /** While scrubbing a past broadcast, show a frame of where you'd land. */
+    var seekPreviews: Boolean
+        get() = sp.getBoolean("seek_previews", true)
+        set(v) = sp.edit().putBoolean("seek_previews", v).apply()
+
+    /** When a live stream ends, start what's up next by itself after a short countdown. */
+    var upNextAutoplay: Boolean
+        get() = sp.getBoolean("up_next_autoplay", true)
+        set(v) = sp.edit().putBoolean("up_next_autoplay", v).apply()
+
     /** Seconds a card waits in focus before playing a preview; 0 turns previews off. */
     var previewDelay: Int
         get() = sp.getInt("preview_delay", 2)

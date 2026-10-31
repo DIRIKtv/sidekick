@@ -60,6 +60,10 @@ internal class PlayerControls(private val act: PlayerActivity) {
     private var qualityLabel = "Auto"
     private val mini: android.widget.ProgressBar = act.findViewById(R.id.miniProgress)
     private val btnSettings: ImageButton = act.findViewById(R.id.btnSettings)
+    private val followedHeart: View = act.findViewById(R.id.followedHeart)
+    private val seekBubble: View = act.findViewById(R.id.seekBubble)
+    private val seekTime: TextView = act.findViewById(R.id.seekTime)
+    private val seekPreview = SeekPreview(act, act.findViewById(R.id.seekPreview))
 
     /** Logical controls state; the view itself may still be fading out. */
     var up = false
@@ -124,7 +128,18 @@ internal class PlayerControls(private val act: PlayerActivity) {
         tooltipLabels.keys.forEach { v ->
             v.setOnFocusChangeListener { view, has -> if (has) updateTooltip(view) }
         }
-        seekBar.setOnFocusChangeListener { _, has -> if (has) tooltip.visibility = View.INVISIBLE }
+        seekBubble.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (seekBubble.visibility == View.VISIBLE) positionBubble() }
+        seekBar.setOnFocusChangeListener { _, has ->
+            if (has) tooltip.visibility = View.INVISIBLE
+            // Thicker while focused, so it's clear the arrows now scrub.
+            val pos = seekBar.progress
+            val second = seekBar.secondaryProgress
+            seekBar.progressDrawable = act.getDrawable(if (has) R.drawable.seek_progress_focused else R.drawable.seek_progress)
+            seekBar.progress = pos
+            seekBar.secondaryProgress = second
+            if (!has && act.pendingSeek == null) seekPreview.release()
+            placeBubble()
+        }
         // The count is drawn by hand, so it follows the pill's dark-on-green focus colours itself.
         btnLive.setOnFocusChangeListener { view, has ->
             if (has) updateTooltip(view)
@@ -185,8 +200,16 @@ internal class PlayerControls(private val act: PlayerActivity) {
         scheduleHide()
     }
 
+    /** Seeking from the remote with the controls hidden: bring up the bar, focused, to scrub on. */
+    fun showForSeek() {
+        if (up) return
+        show(seekBar)
+    }
+
     fun hide() {
         up = false
+        seekPreview.release()
+        seekBubble.visibility = View.INVISIBLE
         updateMini()
         root.fadeOut(200)
         tooltip.visibility = View.INVISIBLE
@@ -203,19 +226,38 @@ internal class PlayerControls(private val act: PlayerActivity) {
         act.ui.removeCallbacks(hideRunnable)
     }
 
+    /** A message drops in at the top centre: one style for everything the player tells you. */
     fun flashOsd(text: String, icon: Int, duration: Long = 1300) {
         if (act.inPip) return
         if (up && act.pendingSeek != null) return // the seek bar already shows it
         osd.text = text
-        osd.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
+        osd.setCompoundDrawablesRelative(toastIcon(icon), null, null, null)
+        // Below the header card while the controls are up, so it doesn't cover the title.
+        val top = if (up) act.dp(112).toFloat() else 0f
         if (osd.visibility != View.VISIBLE) {
-            osd.scaleX = 0.92f
-            osd.scaleY = 0.92f
-            osd.animate().scaleX(1f).scaleY(1f).setDuration(160).start()
+            osd.translationY = top - act.dp(12)
+            osd.animate().translationY(top).setDuration(200)
+                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        } else {
+            osd.translationY = top
         }
-        osd.fadeIn(140)
+        osd.fadeIn(160)
         act.ui.removeCallbacks(osdHide)
         act.ui.postDelayed(osdHide, duration)
+    }
+
+    /** The message's icon, dark on a small green disc. */
+    private fun toastIcon(icon: Int): android.graphics.drawable.Drawable {
+        val size = act.dp(32)
+        val disc = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(act.getColor(R.color.kick_green))
+        }
+        val glyph = act.getDrawable(icon)!!.mutate().apply { setTint(0xFF0B0E0F.toInt()) }
+        return android.graphics.drawable.LayerDrawable(arrayOf(disc, glyph)).apply {
+            setLayerInset(1, act.dp(7), act.dp(7), act.dp(7), act.dp(7))
+            setBounds(0, 0, size, size)
+        }
     }
 
     fun hideOsd() {
@@ -385,6 +427,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         val on = Follows.isFollowing(act, act.slug)
         btnFollow.setImageResource(if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline)
         btnFollow.isActivated = on
+        followedHeart.setVisible(on)
         // Unless unfollowing from the player is turned on, the heart only shows for channels not yet followed.
         val show = !on || act.prefs.playerUnfollow
         if (!show && btnFollow.hasFocus()) btnSettings.requestFocus()
@@ -437,6 +480,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         }
         seekBar.secondaryProgress = (buffered / 1000).toInt()
         position.text = Fmt.time(pos)
+        placeBubble()
         if (act.mode == PlayerActivity.Mode.VOD) {
             durationText.text = Fmt.time(max)
         } else {
@@ -453,5 +497,47 @@ internal class PlayerControls(private val act: PlayerActivity) {
                 liveLabel.compoundDrawablePadding = act.dp(8)
             }
         }
+    }
+
+    /**
+     * While the seek bar has focus or a seek is lined up, a bubble above the thumb says where you'd
+     * land; on past broadcasts it carries a frame of that spot too.
+     */
+    private fun placeBubble() {
+        val pending = act.pendingSeek
+        if (!up || (!seekBar.hasFocus() && pending == null)) {
+            seekBubble.visibility = View.INVISIBLE
+            return
+        }
+        val pos = pending ?: act.timelinePos()
+        val max = act.timelineMax()
+        seekTime.text = when {
+            act.mode == PlayerActivity.Mode.VOD -> Fmt.time(pos)
+            max - pos < PlayerActivity.LIVE_EDGE_MS -> "Live"
+            else -> "−${Fmt.time(max - pos)}"
+        }
+        val source = act.vodUrl
+        if (pending != null && source != null && act.mode == PlayerActivity.Mode.VOD && prefs.seekPreviews) {
+            seekPreview.at(source, pending)
+        } else {
+            seekPreview.hideFrame()
+        }
+        if (seekBubble.width == 0) {
+            seekBubble.visibility = View.INVISIBLE
+            seekBubble.post { placeBubble() }
+            return
+        }
+        positionBubble()
+        seekBubble.visibility = View.VISIBLE
+    }
+
+    /** Puts the bubble over the thumb; again whenever its size changes (the frame comes or goes). */
+    private fun positionBubble() {
+        val track = seekBar.width - seekBar.paddingLeft - seekBar.paddingRight
+        val frac = if (seekBar.max > 0) seekBar.progress / seekBar.max.toFloat() else 0f
+        val cx = bottomBar.left + seekBar.left + seekBar.paddingLeft + track * frac
+        val edge = act.dp(16).toFloat()
+        seekBubble.translationX = (cx - seekBubble.width / 2f).coerceIn(edge, root.width - seekBubble.width - edge)
+        seekBubble.translationY = bottomBar.top + bottomBar.translationY + seekBar.top - seekBubble.height - act.dp(10).toFloat()
     }
 }

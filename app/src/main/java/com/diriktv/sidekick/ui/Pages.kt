@@ -531,6 +531,14 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         subs = listOf("Offer to go with them", "Go with them straight away", "Stay on the channel"),
                         selected = RAID_MODES.indexOfFirst { it.first == prefs.raidMode }) { prefs.raidMode = RAID_MODES[it].first }
                 },
+                Setting("Seek previews", { "A picture of where you'd land while scrubbing a past broadcast" }, R.drawable.ic_preview,
+                    { onOff(prefs.seekPreviews) }, toggle = { prefs.seekPreviews }) {
+                    prefs.seekPreviews = !prefs.seekPreviews
+                },
+                Setting("Up next when a stream ends", { "Start the next live channel by itself after 10 seconds" }, R.drawable.ic_play,
+                    { onOff(prefs.upNextAutoplay) }, toggle = { prefs.upNextAutoplay }) {
+                    prefs.upNextAutoplay = !prefs.upNextAutoplay
+                },
                 Setting("Unfollow from the player", { "Show the heart button for channels you already follow" }, R.drawable.ic_heart_outline,
                     { onOff(prefs.playerUnfollow) }, toggle = { prefs.playerUnfollow }) {
                     prefs.playerUnfollow = !prefs.playerUnfollow

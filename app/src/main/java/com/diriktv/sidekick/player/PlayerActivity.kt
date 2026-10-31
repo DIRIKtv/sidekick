@@ -37,6 +37,9 @@ import com.diriktv.sidekick.ui.Fmt
 import com.diriktv.sidekick.ui.Nav
 import com.diriktv.sidekick.ui.OptionSheet
 import com.diriktv.sidekick.ui.setVisible
+import com.diriktv.sidekick.ui.fadeIn
+import com.diriktv.sidekick.ui.focusZoom
+import com.diriktv.sidekick.ui.dp
 import com.diriktv.sidekick.tv.TvHome
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -62,7 +65,7 @@ class PlayerActivity : FragmentActivity() {
 
         private const val SEEK_COMMIT_DELAY_MS = 700L
         /** Closer than this to the live edge counts as "live". */
-        private const val LIVE_EDGE_MS = 20_000L
+        internal const val LIVE_EDGE_MS = 20_000L
         /** Live pauses longer than this resume from the recording instead of the (short) live window. */
         private const val LIVE_PAUSE_LIMIT_MS = 25_000L
 
@@ -91,12 +94,19 @@ class PlayerActivity : FragmentActivity() {
     internal lateinit var stats: TextView
     private lateinit var errorView: View
     private lateinit var errorText: TextView
+    private lateinit var errorTitle: TextView
+    private lateinit var errorIcon: android.widget.ImageView
     private lateinit var retryButton: TextView
+    private lateinit var errorSecondary: TextView
 
     internal var slug = ""
     internal var mode = Mode.LIVE
     internal var channel: ChannelInfo? = null
-    private var vodUrl: String? = null
+    /** Where the channel being watched last sent its viewers, for the end card's Up next. */
+    private var lastRaid: com.diriktv.sidekick.data.RaidTarget? = null
+    private val endCard by lazy { EndCard(this) }
+    internal var vodUrl: String? = null
+        private set
     private var vodUuid: String? = null
     internal var vodTitle: String? = null
     private var clipId: String? = null
@@ -169,6 +179,8 @@ class PlayerActivity : FragmentActivity() {
         if (!readIntent(intent)) return
         if (previous == (slug to vodUrl) && (player.playbackState != Player.STATE_IDLE || liveLoad?.isActive == true)) return
         setIntent(intent)
+        endCard.hide()
+        lastRaid = null
         chat.reset()
         channel = null
         dvrSource = null
@@ -280,11 +292,12 @@ class PlayerActivity : FragmentActivity() {
         stats = findViewById(R.id.stats)
         errorView = findViewById(R.id.errorView)
         errorText = findViewById(R.id.errorText)
+        errorTitle = findViewById(R.id.errorTitle)
+        errorIcon = findViewById(R.id.errorIcon)
         retryButton = findViewById(R.id.retryButton)
-        retryButton.setOnFocusChangeListener { v, has ->
-            val s = if (has) 1.06f else 1f
-            v.animate().scaleX(s).scaleY(s).setDuration(120).start()
-        }
+        errorSecondary = findViewById(R.id.errorSecondary)
+        retryButton.focusZoom(1.05f)
+        errorSecondary.focusZoom(1.05f)
     }
 
     /** True while the player is one handed over from a Home preview, already playing this stream. */
@@ -354,7 +367,8 @@ class PlayerActivity : FragmentActivity() {
                 KickApi.channel(slug, maxAgeMs = 10_000)
             } catch (e: Exception) {
                 buffering.setVisible(false)
-                showError("Couldn't load the stream.\n${e.message}", "Retry") { startLive() }
+                showError("Couldn't reach Kick", "Sidekick couldn't load ${channel?.username ?: slug}. Check your internet connection, then try again.",
+                    R.drawable.ic_info, ErrorAction("Try again", R.drawable.ic_refresh) { startLive() }, goBack())
                 return@launch
             }
             if (target != slug) return@launch
@@ -364,10 +378,7 @@ class PlayerActivity : FragmentActivity() {
             if (!c.isLive || c.playbackUrl == null) {
                 buffering.setVisible(false)
                 player.stop()
-                showError("${c.username} is offline right now.", "Open channel") {
-                    Nav.channel(this@PlayerActivity, slug)
-                    finish()
-                }
+                showEnded(ended = false)
                 return@launch
             }
             streamStartMs = Fmt.parseUtc(c.liveStartTime) ?: 0L
@@ -475,12 +486,7 @@ class PlayerActivity : FragmentActivity() {
                 }
             }
             if (connectChat && c.isLive) chat.connect(c)
-            if (!c.isLive && mode == Mode.LIVE && !player.isPlaying) {
-                showError("The stream has ended.", "Open channel") {
-                    Nav.channel(this@PlayerActivity, slug)
-                    finish()
-                }
-            }
+            if (!c.isLive && mode == Mode.LIVE && !player.isPlaying) showEnded(ended = true)
         }
     }
 
@@ -513,6 +519,7 @@ class PlayerActivity : FragmentActivity() {
     /** The channel being watched raided [t]: follow it there, ask, or ignore it (Settings → Playback). */
     internal fun onRaid(t: com.diriktv.sidekick.data.RaidTarget) {
         if (mode == Mode.VOD || t.slug.equals(slug, true) || isFinishing) return
+        lastRaid = t
         val from = channel?.username ?: slug
         when (prefs.raidMode) {
             "off" -> return
@@ -626,6 +633,8 @@ class PlayerActivity : FragmentActivity() {
         if (player.playbackState == Player.STATE_IDLE && mode != Mode.VOD) return
         val accel = 1 + repeatCount / 6
         if (pendingSeek == null) seekFrom = timelinePos()
+        // On a past broadcast, scrubbing brings up the bar, with a frame of where you'd land.
+        if (mode == Mode.VOD && !controls.up) controls.showForSeek()
         val base = pendingSeek ?: timelinePos()
         val max = timelineMax()
         val target = (base + delta * accel).coerceIn(0L, max.coerceAtLeast(0L))
@@ -707,9 +716,26 @@ class PlayerActivity : FragmentActivity() {
             return
         }
         buffering.setVisible(false)
-        showError("Playback problem: ${error.errorCodeName}", "Retry") {
+        val again = ErrorAction("Try again", R.drawable.ic_refresh) {
             retries = 0
             retry()
+        }
+        val code = error.errorCode
+        when {
+            code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+                showError("Lost connection", "The video stopped loading. Check your internet, then try again.",
+                    R.drawable.ic_refresh, again, goBack())
+            code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS || code == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                code == PlaybackException.ERROR_CODE_IO_NO_PERMISSION ->
+                showError("This video isn't available", "Kick wouldn't send it. It may have been removed, or the stream may have just ended.",
+                    R.drawable.ic_info, again, openChannel())
+            code in 4000..4999 || code in 3000..3999 ->
+                // Decoding (4xxx) or reading the format (3xxx): a lighter quality often plays.
+                showError("Your TV couldn't play this", "Try a lower quality; it's easier on the TV.", R.drawable.ic_tv, again,
+                    ErrorAction("Lower quality", R.drawable.ic_hd) { errorView.setVisible(false); menu.show(menu.qualityPage()) })
+            else -> showError("Something went wrong", "Playback stopped unexpectedly. Trying again usually fixes it.",
+                R.drawable.ic_info, again, openChannel())
         }
     }
 
@@ -722,12 +748,54 @@ class PlayerActivity : FragmentActivity() {
         }
     }
 
-    private fun showError(message: String, action: String, icon: Int = R.drawable.ic_refresh, onAction: () -> Unit) {
+    /**
+     * The live stream isn't on: [ended] while watching, or offline when opened. Full screen it shows
+     * what's up next; in picture-in-picture there's no room, so just the note.
+     */
+    private fun showEnded(ended: Boolean) {
         controls.hide()
+        if (inPip) showOfflineNote(ended) else endCard.show(ended, lastRaid)
+    }
+
+    /** The small note left behind when the end card is dismissed (or there's no room for it). */
+    internal fun showOfflineNote(ended: Boolean = true) {
+        val name = channel?.username ?: slug
+        showError(if (ended) "Stream ended" else "$name is offline", "Catch up on their past broadcasts and clips on their channel.",
+            R.drawable.ic_broadcast, openChannel(), goBack())
+    }
+
+    /** How long the stream that just ended ran, e.g. "5h 12m". */
+    internal fun streamedFor(): String? {
+        if (streamStartMs <= 0) return null
+        val mins = ((System.currentTimeMillis() - streamStartMs) / 60_000).coerceAtLeast(1)
+        return if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "${mins}m"
+    }
+
+    private class ErrorAction(val label: String, val icon: Int, val run: () -> Unit)
+
+    private fun openChannel() = ErrorAction("Open channel", R.drawable.ic_account) {
+        Nav.channel(this, slug)
+        finish()
+    }
+
+    private fun goBack() = ErrorAction("Go back", R.drawable.ic_close) { finish() }
+
+    /** The error card: an icon, what happened in plain words, and up to two things to do about it. */
+    private fun showError(title: String, message: String, icon: Int, primary: ErrorAction, secondary: ErrorAction? = null) {
+        controls.hide()
+        errorIcon.setImageResource(icon)
+        errorTitle.text = title
         errorText.text = message
-        retryButton.text = action
-        retryButton.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
-        retryButton.setOnClickListener { onAction() }
+        retryButton.text = primary.label
+        retryButton.setCompoundDrawablesRelativeWithIntrinsicBounds(primary.icon, 0, 0, 0)
+        retryButton.setOnClickListener { primary.run() }
+        errorSecondary.setVisible(secondary != null)
+        secondary?.let { a ->
+            errorSecondary.text = a.label
+            errorSecondary.setCompoundDrawablesRelativeWithIntrinsicBounds(a.icon, 0, 0, 0)
+            errorSecondary.setOnClickListener { a.run() }
+        }
+        if (errorView.visibility != View.VISIBLE) errorView.fadeIn(220, fromY = dp(10).toFloat())
         errorView.setVisible(true)
         retryButton.requestFocus()
     }
@@ -760,11 +828,12 @@ class PlayerActivity : FragmentActivity() {
         if (mode == Mode.LIVE) player.stop()
         menu.dismiss()
         root.keepScreenOn = false
-        showError("Sleep timer stopped playback.", "Keep watching", R.drawable.ic_play) {
-            root.keepScreenOn = true
-            errorView.setVisible(false)
-            if (mode == Mode.LIVE) startLive() else player.play()
-        }
+        showError("Still watching?", "The sleep timer stopped playback.", R.drawable.ic_timer,
+            ErrorAction("Keep watching", R.drawable.ic_play) {
+                root.keepScreenOn = true
+                errorView.setVisible(false)
+                if (mode == Mode.LIVE) startLive() else player.play()
+            }, goBack())
     }
 
     // endregion
@@ -818,6 +887,11 @@ class PlayerActivity : FragmentActivity() {
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (layoutEditor.showing && layoutEditor.handle(event)) return true
+        // The end card is ordinary buttons: let focus move between them, and stop its countdown.
+        if (endCard.showing) {
+            if (event.action == KeyEvent.ACTION_DOWN) endCard.onKey()
+            return super.dispatchKeyEvent(event)
+        }
         if (event.action == KeyEvent.ACTION_DOWN) {
             val controlsShown = controls.up
             val errorShown = errorView.visibility == View.VISIBLE
@@ -878,6 +952,10 @@ class PlayerActivity : FragmentActivity() {
         // Newer Android sends Back here rather than through the key handler.
         if (layoutEditor.showing) {
             layoutEditor.saveForChannel()
+            return
+        }
+        if (endCard.showing) {
+            endCard.stay()
             return
         }
         when {
