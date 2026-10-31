@@ -10,8 +10,8 @@ val keystoreProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
-val appVersionName = "1.7.9"
-val appVersionCode = 10709
+val appVersionName = "1.8.0"
+val appVersionCode = 10800
 
 android {
     namespace = "com.diriktv.sidekick"

@@ -3,6 +3,12 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.8.0 · October 31, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Updated networking and images:** OkHttp 5 (everything Sidekick fetches from Kick and GitHub, and the video itself) and Coil 3.6 (thumbnails, avatars and emotes)
+- **Ready for Android 17:** Sidekick now targets the latest Android version and is built with Kotlin 2.4 and the latest Android build tools
+
 ## 1.7.9 · October 31, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
