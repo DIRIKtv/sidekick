@@ -1,11 +1,13 @@
 package com.diriktv.sidekick.ui
 
+import android.graphics.Outline
 import android.os.Build
 import android.os.Parcelable
 import android.text.SpannableStringBuilder
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -191,6 +193,16 @@ class HomePage(private val act: FragmentActivity) : MainPage {
 
     private fun setupHero(v: View) {
         val hero = v.findViewById<View>(R.id.hero)
+        // The rounded clip softens each drawing's corner pixels on its own, so anything stacked
+        // (the grey backdrop, the picture, the dark fade) shows through the layer above at those
+        // pixels as a faint light rim. So they're drawn as one layer, and the hero itself paints
+        // nothing: it only supplies the rounded shape for the clip and the focus glow.
+        v.findViewById<View>(R.id.heroArt).setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        val radius = act.dp(16).toFloat()
+        hero.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) =
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+        }
         hero.clipToOutline = true
         hero.setOnClickListener { heroItems.getOrNull(heroIndex)?.let { Nav.watchLive(act, it.slug) } }
         hero.setOnLongClickListener { heroItems.getOrNull(heroIndex)?.let { Nav.channel(act, it.slug) }; true }

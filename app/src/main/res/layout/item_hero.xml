@@ -13,9 +13,16 @@
         android:id="@+id/hero"
         android:layout_width="match_parent"
         android:layout_height="290dp"
-        android:background="@drawable/bg_hero"
         android:focusable="true"
         android:foreground="@drawable/fg_hero">
+
+        <!-- Picture and shading, flattened into one layer before the hero rounds its corners
+             (see setupHero). -->
+        <FrameLayout
+            android:id="@+id/heroArt"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/surface">
 
         <!-- The thumbnail, and the live preview laid over it (index 1) once it starts. -->
         <FrameLayout
@@ -40,6 +47,7 @@
             android:layout_height="90dp"
             android:layout_gravity="bottom"
             android:background="@drawable/scrim_hero_bottom" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="480dp"
