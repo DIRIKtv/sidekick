@@ -20,7 +20,7 @@ android {
     defaultConfig {
         applicationId = "com.diriktv.sidekick"
         minSdk = 23
-        targetSdk = 36
+        targetSdk = 37
         versionCode = appVersionCode
         versionName = appVersionName
     }
@@ -92,9 +92,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("io.coil-kt.coil3:coil:3.4.0")
-    implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("io.coil-kt.coil3:coil:3.6.3")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("com.google.zxing:core:3.5.4")
 
     // Debug builds only: watches for leaked screens and views and reports them to logcat
