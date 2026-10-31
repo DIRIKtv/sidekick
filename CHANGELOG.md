@@ -3,6 +3,15 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.8 · October 31, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **More room under the channel tabs,** so the grid no longer crowds Past broadcasts and Clips
+- **Updated libraries:** newer AndroidX, Kotlin coroutines and QR code libraries, built with the latest Android tools
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- The selected Watch live or Follow button on a channel page still had its top and bottom edges cut off
+
 ## 1.7.7 · October 31, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
