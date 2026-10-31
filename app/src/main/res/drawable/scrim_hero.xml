@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Dark only behind the text on the left; the stream stays near full brightness on the right. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <gradient android:angle="0" android:startColor="#F20B0E0F" android:centerColor="#A60B0E0F" android:endColor="#000B0E0F"/>
+    <gradient android:angle="0" android:startColor="#F20B0E0F" android:centerX="0.42" android:centerColor="#9E0B0E0F" android:endColor="#000B0E0F"/>
 </shape>

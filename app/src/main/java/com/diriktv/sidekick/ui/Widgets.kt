@@ -771,3 +771,24 @@ class StepPlayerView @JvmOverloads constructor(context: Context, attrs: Attribut
         val PLAY_R = floatArrayOf(13.25f, 8f, 20f, 12f, 20f, 12f, 13.25f, 16f)
     }
 }
+
+/** A red live dot that sends out a soft ring every couple of seconds while it's on screen. */
+class LiveDot @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+    private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.live_red) }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.live_red) }
+    private val still = context.motionOff()
+
+    override fun onDraw(canvas: Canvas) {
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = min(width, height) / 2f
+        val core = r * 0.5f
+        if (!still) {
+            val t = (SystemClock.uptimeMillis() % 1800L) / 1800f
+            ring.alpha = (110 * (1 - t)).toInt()
+            canvas.drawCircle(cx, cy, core + (r - core) * t, ring)
+            postInvalidateOnAnimation()
+        }
+        canvas.drawCircle(cx, cy, core, dot)
+    }
+}

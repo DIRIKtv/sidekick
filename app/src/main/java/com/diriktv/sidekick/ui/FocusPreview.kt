@@ -36,8 +36,11 @@ object FocusPreview {
         override fun onPause(owner: LifecycleOwner) = stop()
     }
 
-    /** A card gained (or lost) focus; [slug] is the live channel it shows. */
-    fun onFocus(cardView: View, slug: String, focused: Boolean) {
+    /**
+     * A card gained (or lost) focus; [slug] is the live channel it shows. [maxHeight] caps the
+     * preview's picture (the Home hero is far bigger than a card and asks for more).
+     */
+    fun onFocus(cardView: View, slug: String, focused: Boolean, maxHeight: Int = 480) {
         if (!focused) {
             if (card === cardView || pendingFor === cardView) stop()
             return
@@ -47,7 +50,7 @@ object FocusPreview {
         val delay = Prefs(cardView.context).previewDelay
         if (delay <= 0) return
         pendingFor = cardView
-        val r = Runnable { start(cardView, slug) }
+        val r = Runnable { start(cardView, slug, maxHeight) }
         pending = r
         main.postDelayed(r, delay * 1000L)
     }
@@ -75,7 +78,7 @@ object FocusPreview {
         }
     }
 
-    private fun start(cardView: View, slug: String) {
+    private fun start(cardView: View, slug: String, maxHeight: Int) {
         pending = null
         val act = cardView.context as? FragmentActivity ?: return
         if (!cardView.hasFocus() && !cardView.isFocused) return
@@ -83,10 +86,12 @@ object FocusPreview {
             val url = runCatching { KickApi.channel(slug).takeIf { it.isLive }?.playbackUrl }.getOrNull() ?: return@launch
             if (!cardView.isFocused || !cardView.isAttachedToWindow) return@launch
             val frame = cardView.findViewById<FrameLayout>(R.id.thumbFrame) ?: return@launch
-            val p = player ?: PlayerFactory.create(act.applicationContext, maxHeight = 480).also {
+            val p = player ?: PlayerFactory.create(act.applicationContext).also {
                 it.volume = 0f
                 player = it
             }
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                .setMaxVideoSize(Int.MAX_VALUE, maxHeight).build()
             val tv = TextureView(act).apply { alpha = 0f }
             // Above the thumbnail, under the LIVE and viewer badges.
             frame.addView(tv, 1, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

@@ -267,6 +267,27 @@ object Fmt {
         return time(System.currentTimeMillis() - t)
     }
 
+    /** "6h 53m" (or "12m") since [start]. */
+    fun uptimeShort(start: String?): String? {
+        val t = parseUtc(start) ?: return null
+        val mins = ((System.currentTimeMillis() - t) / 60000).coerceAtLeast(0)
+        return if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "${mins}m"
+    }
+
+    /**
+     * A stream title tidied for a headline: links dropped, "|" dividers turned into dots and any
+     * left dangling at either end removed.
+     */
+    fun cleanTitle(title: String?): String {
+        if (title.isNullOrBlank()) return ""
+        val parts = title
+            .replace(Regex("""(https?://|www\.)\S+""", RegexOption.IGNORE_CASE), " ")
+            .split('|', '│', '┃')
+            .map { it.replace(Regex("""\s+"""), " ").trim() }
+            .filter { it.isNotEmpty() }
+        return parts.joinToString("  ·  ").ifEmpty { title.trim() }
+    }
+
     fun ago(date: String?): String = parseUtc(date)?.let { ago(it) } ?: ""
 
     fun ago(t: Long): String {

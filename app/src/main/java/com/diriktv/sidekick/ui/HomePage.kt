@@ -1,9 +1,12 @@
 package com.diriktv.sidekick.ui
 
+import android.os.Build
 import android.os.Parcelable
+import android.text.SpannableStringBuilder
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
@@ -170,6 +173,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         list.adapter = rowAdapter
         list.setPadding(0, act.dp(18), 0, act.dp(200))
         list.clipToPadding = false
+        list.clipChildren = false // the focused hero's glow spills past its row
         list.setItemViewCacheSize(12)
         list.itemAnimator = null
         status.setTextColor(act.getColor(R.color.text_secondary))
@@ -205,10 +209,31 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         steps.onAdvance = { i ->
             if (i in heroItems.indices) { heroIndex = i; bindHero(animate = true) }
         }
-        hero.setOnFocusChangeListener { _, has ->
-            v.findViewById<TextView>(R.id.heroHint).alpha = if (has) 1f else 0.6f
-            steps.playing = !has
+        // Focus lifts the hero a little with a soft green glow, and after a moment the stream
+        // itself plays, muted, in place of the thumbnail.
+        if (Build.VERSION.SDK_INT >= 28) {
+            hero.outlineSpotShadowColor = act.getColor(R.color.kick_green)
+            hero.outlineAmbientShadowColor = act.getColor(R.color.kick_green)
         }
+        hero.setOnFocusChangeListener { _, has ->
+            v.findViewById<TextView>(R.id.heroHint).animate().alpha(if (has) 1f else 0f).setDuration(160).start()
+            steps.playing = !has
+            v.findViewById<View>(R.id.heroWatch).isActivated = has
+            val lift = if (has && !act.motionOff()) 1.02f else 1f
+            hero.animate().scaleX(lift).scaleY(lift).translationZ(if (has) act.dp(10).toFloat() else 0f)
+                .setDuration(200).setInterpolator(DecelerateInterpolator()).start()
+            heroItems.getOrNull(heroIndex)?.let { FocusPreview.onFocus(hero, it.slug, has, maxHeight = 720) }
+        }
+        v.findViewById<TextView>(R.id.heroHint).alpha = 0f
+        // The icons sit beside small text, so they're drawn smaller than their 24dp.
+        fun TextView.icon(size: Int) {
+            val d = compoundDrawablesRelative[0]?.mutate() ?: return
+            d.setBounds(0, 0, act.dp(size), act.dp(size))
+            setCompoundDrawablesRelative(d, null, null, null)
+        }
+        v.findViewById<TextView>(R.id.heroWatch).icon(15)
+        v.findViewById<TextView>(R.id.heroViewers).icon(15)
+        v.findViewById<TextView>(R.id.heroUptime).icon(14)
     }
 
     private fun bindHero(animate: Boolean, direction: Int = 1) {
@@ -218,27 +243,31 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             v.findViewById(R.id.heroName), v.findViewById(R.id.heroTitle),
             v.findViewById(R.id.heroMeta), v.findViewById(R.id.heroAvatar),
         )
-        v.findViewById<ImageView>(R.id.heroImage).apply {
-            loadThumb(Img.thumb(s.thumbnail, 1080))
-            kenBurns(heroIndex)
-        }
+        v.findViewById<ImageView>(R.id.heroImage).loadThumb(Img.thumb(s.thumbnail, 1080))
+        // The drift runs on the frame, so the live preview inside it keeps moving too.
+        v.findViewById<View>(R.id.thumbFrame).kenBurns(heroIndex)
         v.findViewById<ImageView>(R.id.heroAvatar).loadAvatar(s.avatar, s.username)
         v.findViewById<TextView>(R.id.heroName).text = s.username
-        v.findViewById<TextView>(R.id.heroTitle).text = s.title
-        v.findViewById<TextView>(R.id.heroMeta).text = listOfNotNull(
-            Fmt.viewers(s.viewers), s.category, Fmt.uptime(s.startTime)?.let { "live for $it" },
-        ).joinToString("  •  ")
-        v.findViewById<TextView>(R.id.heroEyebrow).text =
-            if (heroFromFollows) "●  FOLLOWING  •  LIVE NOW" else "●  FEATURED  •  LIVE NOW"
-        v.findViewById<TextView>(R.id.heroHint).text =
-            if (heroItems.size > 1) "Watch     ◀ ▶  ${heroIndex + 1} of ${heroItems.size}" else "Watch"
-        v.findViewById<View>(R.id.heroPrev).setVisible(heroIndex > 0)
-        v.findViewById<View>(R.id.heroNext).setVisible(heroIndex < heroItems.size - 1)
+        v.findViewById<TextView>(R.id.heroTitle).text = Fmt.cleanTitle(s.title)
+        v.findViewById<TextView>(R.id.heroViewers).text = Fmt.viewers(s.viewers)
+        v.findViewById<TextView>(R.id.heroCategory).apply {
+            text = s.category
+            setVisible(!s.category.isNullOrBlank())
+        }
+        v.findViewById<TextView>(R.id.heroUptime).apply {
+            text = Fmt.uptimeShort(s.startTime)
+            setVisible(text.isNotEmpty())
+        }
+        v.findViewById<TextView>(R.id.heroEyebrow).text = SpannableStringBuilder()
+            .append("LIVE", BoldSpan(AppFonts.get(act, AppFonts.Weight.BLACK)), 0)
+            .append(if (heroFromFollows) "  ·  Following" else "  ·  Featured")
 
         v.findViewById<StepPlayerView>(R.id.heroSteps).apply {
             bind(heroItems.size, heroIndex)
             setVisible(heroItems.size > 1)
         }
+        val hero = v.findViewById<View>(R.id.hero)
+        if (hero.isFocused) FocusPreview.onFocus(hero, s.slug, true, maxHeight = 720)
         if (animate) {
             content.forEach {
                 it.alpha = 0f

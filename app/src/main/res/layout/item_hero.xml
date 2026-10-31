@@ -2,10 +2,12 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:clipChildren="false"
+    android:clipToPadding="false"
     android:paddingStart="28dp"
-    android:paddingTop="6dp"
+    android:paddingTop="10dp"
     android:paddingEnd="28dp"
-    android:paddingBottom="14dp">
+    android:paddingBottom="16dp">
 
     <FrameLayout
         android:id="@+id/hero"
@@ -15,12 +17,18 @@
         android:focusable="true"
         android:foreground="@drawable/fg_hero">
 
-        <ImageView
-            android:id="@+id/heroImage"
+        <!-- The thumbnail, and the live preview laid over it (index 1) once it starts. -->
+        <FrameLayout
+            android:id="@+id/thumbFrame"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginStart="150dp"
-            android:scaleType="centerCrop" />
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/heroImage"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop" />
+        </FrameLayout>
 
         <View
             android:layout_width="match_parent"
@@ -29,32 +37,44 @@
 
         <View
             android:layout_width="match_parent"
-            android:layout_height="110dp"
+            android:layout_height="90dp"
             android:layout_gravity="bottom"
             android:background="@drawable/scrim_hero_bottom" />
 
         <LinearLayout
-            android:layout_width="440dp"
+            android:layout_width="480dp"
             android:layout_height="match_parent"
             android:gravity="bottom"
             android:orientation="vertical"
-            android:paddingStart="30dp"
-            android:paddingBottom="26dp">
+            android:paddingStart="32dp"
+            android:paddingBottom="24dp">
 
-            <TextView
-                android:id="@+id/heroEyebrow"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_hero_eyebrow"
-                android:fontFamily="sans-serif-medium"
-                android:includeFontPadding="false"
-                android:letterSpacing="0.1"
-                android:paddingStart="8dp"
-                android:paddingTop="4dp"
-                android:paddingEnd="9dp"
-                android:paddingBottom="4dp"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="9dp"
+                android:paddingTop="5dp"
+                android:paddingEnd="11dp"
+                android:paddingBottom="5dp">
+
+                <com.diriktv.sidekick.ui.LiveDot
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_marginEnd="5dp" />
+
+                <TextView
+                    android:id="@+id/heroEyebrow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:includeFontPadding="false"
+                    android:letterSpacing="0.06"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -65,51 +85,117 @@
 
                 <ImageView
                     android:id="@+id/heroAvatar"
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:layout_marginEnd="12dp" />
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="14dp" />
 
                 <TextView
                     android:id="@+id/heroName"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:ellipsize="end"
                     android:fontFamily="sans-serif-black"
+                    android:includeFontPadding="false"
                     android:maxLines="1"
                     android:textColor="#FFFFFF"
-                    android:textSize="26sp" />
+                    android:textSize="32sp" />
             </LinearLayout>
 
             <TextView
                 android:id="@+id/heroTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="10dp"
                 android:ellipsize="end"
-                android:maxLines="2"
+                android:maxLines="1"
                 android:textColor="#E6FFFFFF"
                 android:textSize="16sp" />
 
-            <TextView
+            <LinearLayout
                 android:id="@+id/heroMeta"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:maxLines="1"
-                android:textColor="@color/kick_green"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/heroHint"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:drawableStart="@drawable/ic_play"
-                android:drawablePadding="6dp"
-                android:drawableTint="#FFFFFF"
-                android:fontFamily="sans-serif-medium"
+                android:layout_marginTop="10dp"
                 android:gravity="center_vertical"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp" />
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/heroViewers"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:drawableStart="@drawable/ic_person"
+                    android:drawablePadding="5dp"
+                    android:drawableTint="#FFFFFF"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center_vertical"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/heroCategory"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:background="@drawable/bg_hero_chip"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxWidth="220dp"
+                    android:maxLines="1"
+                    android:paddingStart="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="4dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/heroUptime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:drawableStart="@drawable/ic_clock"
+                    android:drawablePadding="5dp"
+                    android:drawableTint="@color/text_secondary"
+                    android:gravity="center_vertical"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/heroWatch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_hero_watch"
+                    android:drawableStart="@drawable/ic_play"
+                    android:drawablePadding="8dp"
+                    android:drawableTint="#0B0E0F"
+                    android:fontFamily="sans-serif-black"
+                    android:gravity="center_vertical"
+                    android:includeFontPadding="false"
+                    android:paddingStart="16dp"
+                    android:paddingTop="9dp"
+                    android:paddingEnd="20dp"
+                    android:paddingBottom="9dp"
+                    android:text="Watch"
+                    android:textColor="#0B0E0F"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/heroHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:text="☰  Channel"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
         </LinearLayout>
 
         <com.diriktv.sidekick.ui.StepPlayerView
@@ -119,24 +205,5 @@
             android:layout_gravity="bottom|end"
             android:layout_margin="20dp"
             android:visibility="gone" />
-
-        <ImageView
-            android:id="@+id/heroPrev"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:layout_gravity="center_vertical|start"
-            android:layout_marginStart="2dp"
-            android:alpha="0.8"
-            android:rotation="180"
-            android:src="@drawable/ic_chevron" />
-
-        <ImageView
-            android:id="@+id/heroNext"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:layout_gravity="center_vertical|end"
-            android:layout_marginEnd="2dp"
-            android:alpha="0.8"
-            android:src="@drawable/ic_chevron" />
     </FrameLayout>
 </FrameLayout>
