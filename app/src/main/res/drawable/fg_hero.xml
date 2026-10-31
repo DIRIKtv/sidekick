@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A thin edge when focused; the lift and glow are done in code. It's inset by half its width
-     with a matching smaller radius, so its outer edge follows the hero's rounded clip exactly
-     and no picture shows past it at the corners. -->
+<!-- A thin edge when focused; the lift and glow are done in code. The shape already draws its
+     stroke inside its bounds, so with a radius 1dp (half the stroke) under the hero's 16dp the
+     stroke's outer edge lies exactly on the rounded clip and no picture shows past it. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android"
     android:enterFadeDuration="160"
     android:exitFadeDuration="160">
     <item android:state_focused="true">
-        <inset android:inset="1dp">
-            <shape><stroke android:width="2dp" android:color="@color/kick_green"/><corners android:radius="15dp"/></shape>
-        </inset>
+        <shape><stroke android:width="2dp" android:color="@color/kick_green"/><corners android:radius="15dp"/></shape>
     </item>
     <item><color android:color="@android:color/transparent"/></item>
 </selector>
