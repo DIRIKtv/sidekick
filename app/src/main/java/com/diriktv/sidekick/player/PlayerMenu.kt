@@ -198,7 +198,7 @@ internal class PlayerMenu(private val act: PlayerActivity) {
 
     private fun layoutLabel(): String {
         val l = act.chat.layout
-        return (if (l.beside) "Beside video" else "Over video") + if (l.left) ", left" else ""
+        return if (l.beside) "Beside video" + if (l.left) ", left" else "" else "Over video"
     }
 
     private fun chatPage() = OptionSheet.Page("Chat") {
@@ -207,7 +207,7 @@ internal class PlayerMenu(private val act: PlayerActivity) {
             OptionSheet.Item("Show chat", value = onOff(act.chat.wanted)) {
                 act.chat.wanted = !act.chat.wanted; prefs.chatEnabled = act.chat.wanted; act.chat.applyLayout(animate = true); it.refresh()
             },
-            OptionSheet.Item("Customize layout", sub = "Side, size and position, remembered for ${act.channel?.username ?: "this channel"}",
+            OptionSheet.Item("Customize layout", sub = "Put chat anywhere, at any size, remembered for ${act.channel?.username ?: "this channel"}",
                 value = layoutLabel(), icon = R.drawable.ic_layout) {
                 it.dismiss()
                 act.layoutEditor.show()

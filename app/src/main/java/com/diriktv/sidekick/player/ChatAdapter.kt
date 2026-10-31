@@ -53,6 +53,9 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
 
     /** Prefix each message with the time it arrived. */
     var showTimestamps = false
+    /** A soft shadow under the text, for chat over the video with little or no backing. */
+    var textShadow = false
+        set(value) { if (field != value) { field = value; notifyDataSetChanged() } }
 
     private val timeFormat = android.text.format.DateFormat.getTimeFormat(context)
     private val amPm = Regex("""\s?[AaPp]\.?[Mm]\.?$""")
@@ -106,6 +109,8 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
         val pad = (spacingDp * context.resources.displayMetrics.density).toInt()
         if (holder.text.paddingTop != pad) holder.text.setPadding(holder.text.paddingLeft, pad, holder.text.paddingRight, pad)
         holder.text.text = render(messages[position], holder.text.lineHeight)
+        if (textShadow) holder.text.setShadowLayer(4f, 0f, 1f, 0xE6000000.toInt())
+        else holder.text.setShadowLayer(0f, 0f, 0f, 0)
     }
 
     /** A message as chat shows it (for the pinned message card). */

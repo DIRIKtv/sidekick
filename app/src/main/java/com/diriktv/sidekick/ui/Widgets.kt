@@ -200,6 +200,8 @@ class RollingCounter @JvmOverloads constructor(context: Context, attrs: Attribut
     var textColor: Int
         get() = paint.color
         set(value) { paint.color = value; invalidate() }
+    var weight: AppFonts.Weight = AppFonts.Weight.REGULAR
+        set(value) { field = value; paint.typeface = AppFonts.get(context, value); requestLayout(); invalidate() }
 
     private class Col(n: Float) {
         var pos = n

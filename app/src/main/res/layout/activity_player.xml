@@ -162,14 +162,6 @@
                             android:textColor="@color/kick_green"
                             android:textSize="14sp" />
 
-                        <!-- Live viewer count; its digits roll when a refresh changes it. -->
-                        <com.diriktv.sidekick.ui.RollingCounter
-                            android:id="@+id/viewerCount"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="10dp"
-                            android:visibility="gone" />
-
                         <TextView
                             android:id="@+id/streamMeta"
                             android:layout_width="match_parent"
@@ -257,19 +249,47 @@
                         android:layout_gravity="start|center_vertical"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
-                    <TextView
+                    <!-- Live status / jump to live, with the viewer count (its digits roll when it changes). -->
+                    <LinearLayout
                         android:id="@+id/btnLive"
                         android:layout_width="wrap_content"
                         android:layout_height="40dp"
                         android:background="@drawable/bg_live_pill"
                         android:focusable="true"
-                        android:fontFamily="sans-serif-black"
-                        android:gravity="center"
-                        android:includeFontPadding="false"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
                         android:paddingStart="16dp"
-                        android:paddingEnd="18dp"
-                        android:textColor="@color/on_focus_primary"
-                        android:textSize="14sp" />
+                        android:paddingEnd="18dp">
+
+                        <TextView
+                            android:id="@+id/liveLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:duplicateParentState="true"
+                            android:fontFamily="sans-serif-black"
+                            android:includeFontPadding="false"
+                            android:textColor="@color/on_focus_primary"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/liveSep"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="7dp"
+                            android:layout_marginEnd="7dp"
+                            android:duplicateParentState="true"
+                            android:includeFontPadding="false"
+                            android:text="·"
+                            android:textColor="@color/on_focus_primary"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+
+                        <com.diriktv.sidekick.ui.RollingCounter
+                            android:id="@+id/viewerCount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:visibility="gone" />
+                    </LinearLayout>
 
                     <ImageButton android:id="@+id/btnProfile" style="@style/CtrlButton" android:layout_marginStart="10dp" android:contentDescription="Go to channel" android:src="@drawable/ic_person" />
                     </LinearLayout>

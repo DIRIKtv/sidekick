@@ -395,20 +395,27 @@ internal class ChatController(private val act: PlayerActivity) {
         val show = shown
         val beside = l.beside
         val panelVisible = show && (beside || !act.controls.up)
-        panel.setBackgroundColor(act.getColor(if (beside) R.color.chat_bg else R.color.chat_overlay_bg))
+        panel.setBackgroundColor(if (beside) act.getColor(R.color.chat_bg) else (l.backing * 255 / 100 shl 24))
+        adapter.textShadow = !beside && l.backing < 50
+        // A small see-through chat over the video looks like a streamer's overlay: no title bar.
+        act.findViewById<View>(R.id.chatHeader).setVisible(beside || l.backing >= 50)
         act.controls.btnChat.isActivated = show
         if (show) list.scrollToPosition((adapter.itemCount - 1).coerceAtLeast(0))
         act.controls.setCompact(show && beside)
 
         val chatWidth = act.dp(l.width)
+        val parentW = (panel.parent as View).width
         val parentH = (panel.parent as View).height
         if (!beside && parentH == 0) panel.post { applyLayout() } // sized once the screen is laid out
         val plp = panel.layoutParams as FrameLayout.LayoutParams
         val h = if (beside || parentH == 0) FrameLayout.LayoutParams.MATCH_PARENT else parentH * l.height / 100
         val top = if (beside || parentH == 0) 0 else (parentH - h) * l.top / 100
-        val gravity = (if (l.left) android.view.Gravity.START else android.view.Gravity.END) or android.view.Gravity.TOP
-        if (plp.width != chatWidth || plp.height != h || plp.gravity != gravity || plp.topMargin != top) {
-            plp.width = chatWidth; plp.height = h; plp.gravity = gravity; plp.topMargin = top
+        // Over the video it can sit anywhere: placed from the left by its share of the free width.
+        val free = !beside && parentW > 0
+        val start = if (free) ((parentW - chatWidth).coerceAtLeast(0) * l.x / 100) else 0
+        val gravity = (if (free || l.left) android.view.Gravity.START else android.view.Gravity.END) or android.view.Gravity.TOP
+        if (plp.width != chatWidth || plp.height != h || plp.gravity != gravity || plp.topMargin != top || plp.marginStart != start) {
+            plp.width = chatWidth; plp.height = h; plp.gravity = gravity; plp.topMargin = top; plp.marginStart = start
             panel.layoutParams = plp
         }
 
@@ -425,7 +432,8 @@ internal class ChatController(private val act: PlayerActivity) {
             stage.layoutParams = lp
             return
         }
-        val away = (if (l.left) -1 else 1) * chatWidth.toFloat()
+        val fromLeft = if (beside) l.left else l.x < 50
+        val away = (if (fromLeft) -1 else 1) * chatWidth.toFloat()
         val startStart = lp.marginStart
         val startEnd = lp.marginEnd
         val startShift = if (panel.visibility == View.VISIBLE) panel.translationX else away

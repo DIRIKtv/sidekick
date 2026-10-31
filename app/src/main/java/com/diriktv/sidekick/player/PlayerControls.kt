@@ -13,6 +13,7 @@ import androidx.media3.common.Player
 import com.diriktv.sidekick.R
 import com.diriktv.sidekick.data.Follows
 import com.diriktv.sidekick.ui.Fmt
+import com.diriktv.sidekick.ui.AppFonts
 import com.diriktv.sidekick.ui.RollingCounter
 import com.diriktv.sidekick.ui.dp
 import com.diriktv.sidekick.ui.fadeIn
@@ -40,7 +41,13 @@ internal class PlayerControls(private val act: PlayerActivity) {
     private val durationText: TextView = act.findViewById(R.id.durationText)
     private val tooltip: TextView = act.findViewById(R.id.tooltip)
     private val clock: TextView = act.findViewById(R.id.clock)
-    private val btnLive: TextView = act.findViewById(R.id.btnLive)
+    private val btnLive: View = act.findViewById(R.id.btnLive)
+    private val liveLabel: TextView = act.findViewById(R.id.liveLabel)
+    private val liveSep: View = act.findViewById(R.id.liveSep)
+    private val viewerCount: RollingCounter = act.findViewById<RollingCounter>(R.id.viewerCount).apply {
+        weight = AppFonts.Weight.MEDIUM
+        textColor = act.getColor(R.color.text_primary)
+    }
     private val btnRewind: ImageButton = act.findViewById(R.id.btnRewind)
     val btnPlay: ImageButton = act.findViewById(R.id.btnPlay)
     private val btnForward: ImageButton = act.findViewById(R.id.btnForward)
@@ -114,6 +121,11 @@ internal class PlayerControls(private val act: PlayerActivity) {
             v.setOnFocusChangeListener { view, has -> if (has) updateTooltip(view) }
         }
         seekBar.setOnFocusChangeListener { _, has -> if (has) tooltip.visibility = View.INVISIBLE }
+        // The count is drawn by hand, so it follows the pill's dark-on-green focus colours itself.
+        btnLive.setOnFocusChangeListener { view, has ->
+            if (has) updateTooltip(view)
+            viewerCount.textColor = if (has) 0xFF000000.toInt() else act.getColor(R.color.text_primary)
+        }
     }
 
     /** Show the label centered just above the focused control. */
@@ -130,7 +142,11 @@ internal class PlayerControls(private val act: PlayerActivity) {
             val cx = loc[0] - base[0] + v.width / 2f
             val maxX = (root.width - tooltip.width - act.dp(8)).toFloat()
             tooltip.translationX = (cx - tooltip.width / 2f).coerceIn(act.dp(8).toFloat(), maxX)
-            tooltip.translationY = (loc[1] - base[1] - tooltip.height - act.dp(4)).toFloat()
+            // The bar may still be sliding up into place; aim for where it comes to rest.
+            var slide = 0f
+            var p: View? = v
+            while (p != null && p !== root) { slide += p.translationY; p = p.parent as? View }
+            tooltip.translationY = loc[1] - base[1] - slide - tooltip.height - act.dp(4)
             tooltip.alpha = 0f
             tooltip.visibility = View.VISIBLE
             tooltip.animate().alpha(1f).translationYBy(-act.dp(4).toFloat()).setDuration(140).start()
@@ -324,7 +340,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         val playPad = act.dp(if (on) 14 else 16)
         btnPlay.setPadding(playPad, playPad, playPad, playPad)
         btnLive.setPadding(act.dp(if (on) 12 else 16), 0, act.dp(if (on) 14 else 18), 0)
-        btnLive.textSize = if (on) 13f else 14f
+        liveLabel.textSize = if (on) 13f else 14f
         updateCaptionButton()
     }
 
@@ -371,23 +387,15 @@ internal class PlayerControls(private val act: PlayerActivity) {
     fun updateMeta() {
         val c = act.channel
         val live = act.mode != PlayerActivity.Mode.VOD && c != null
-        act.findViewById<RollingCounter>(R.id.viewerCount).apply {
-            setVisible(live)
-            if (c != null && live) setValue(c.liveViewers)
-        }
+        viewerCount.setVisible(live)
+        liveSep.setVisible(live)
+        if (c != null && live) viewerCount.setValue(c.liveViewers)
         val meta = if (act.mode == PlayerActivity.Mode.VOD) {
             listOfNotNull(if (act.isClip) "Clip" else "Past broadcast", c?.let { "${Fmt.count(it.followers)} followers" })
         } else {
-            listOfNotNull(
-                c?.let { "watching" },
-                c?.liveCategory,
-                Fmt.uptime(c?.liveStartTime)?.let { "live for $it" },
-            )
+            listOfNotNull(c?.liveCategory)
         } + listOfNotNull(if (act.sleepTimer.active) "sleep ${act.sleepTimer.label()}" else null)
-        act.findViewById<TextView>(R.id.streamMeta).apply {
-            text = meta.joinToString("  •  ")
-            setPaddingRelative(act.dp(if (live) 5 else 10), 0, 0, 0)
-        }
+        act.findViewById<TextView>(R.id.streamMeta).text = meta.joinToString("  •  ")
     }
 
     fun updateProgress() {
@@ -407,14 +415,14 @@ internal class PlayerControls(private val act: PlayerActivity) {
             val atLive = act.isAtLive()
             durationText.text = if (atLive) Fmt.time(max) else "−${Fmt.time(max - pos)}"
             val label = if (atLive) "LIVE" else "GO LIVE"
-            if (btnLive.text != label) {
-                btnLive.text = label
+            if (liveLabel.text != label) {
+                liveLabel.text = label
                 val dot = act.getDrawable(R.drawable.dot)!!.mutate().apply {
                     setBounds(0, 0, act.dp(8), act.dp(8))
                     setTint(act.getColor(if (atLive) R.color.live_red else R.color.text_secondary))
                 }
-                btnLive.setCompoundDrawablesRelative(dot, null, null, null)
-                btnLive.compoundDrawablePadding = act.dp(8)
+                liveLabel.setCompoundDrawablesRelative(dot, null, null, null)
+                liveLabel.compoundDrawablePadding = act.dp(8)
             }
         }
     }
