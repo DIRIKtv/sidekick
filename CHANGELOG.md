@@ -3,6 +3,11 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.4 · October 30, 2026
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- A faint light rim on the left corners of the Home banner, most visible on darker streams
+
 ## 1.7.3 · October 30, 2026
 
 ### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
