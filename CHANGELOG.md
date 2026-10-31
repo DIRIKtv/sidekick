@@ -3,6 +3,15 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.8.5 · October 31, 2026
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Better captions:** they now roll like TV captions, the newest two lines on a dark glass card, staying up through short pauses instead of blinking off. They follow your TV's caption text size and move above the controls when those appear
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- Captions disappeared between sentences and came back repeating words already said
+- In Recently watched, the green focus ring covered the LIVE badge, and the line under each name was cut off
+
 ## 1.8.4 · October 31, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
