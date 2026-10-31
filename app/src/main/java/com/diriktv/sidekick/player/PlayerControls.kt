@@ -131,12 +131,6 @@ internal class PlayerControls(private val act: PlayerActivity) {
         seekBubble.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (seekBubble.visibility == View.VISIBLE) positionBubble() }
         seekBar.setOnFocusChangeListener { _, has ->
             if (has) tooltip.visibility = View.INVISIBLE
-            // Thicker while focused, so it's clear the arrows now scrub.
-            val pos = seekBar.progress
-            val second = seekBar.secondaryProgress
-            seekBar.progressDrawable = act.getDrawable(if (has) R.drawable.seek_progress_focused else R.drawable.seek_progress)
-            seekBar.progress = pos
-            seekBar.secondaryProgress = second
             if (!has && act.pendingSeek == null) seekPreview.release()
             placeBubble()
         }
@@ -189,7 +183,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
             }
         }
         act.chat.onControlsShown()
-        osd.fadeOut(120)
+        moveOsd()
         updateProgress()
         updateMeta()
         updateQuality()
@@ -212,6 +206,7 @@ internal class PlayerControls(private val act: PlayerActivity) {
         seekBubble.visibility = View.INVISIBLE
         updateMini()
         root.fadeOut(200)
+        moveOsd()
         tooltip.visibility = View.INVISIBLE
         act.chat.onControlsHidden()
         act.ui.removeCallbacks(hideRunnable)
@@ -232,18 +227,28 @@ internal class PlayerControls(private val act: PlayerActivity) {
         if (up && act.pendingSeek != null) return // the seek bar already shows it
         osd.text = text
         osd.setCompoundDrawablesRelative(toastIcon(icon), null, null, null)
-        // Below the header card while the controls are up, so it doesn't cover the title.
-        val top = if (up) act.dp(112).toFloat() else 0f
+        // Its own drop-in: fadeIn() would slide it back to the very top, behind the header card.
+        val top = osdTop()
+        osd.animate().cancel()
         if (osd.visibility != View.VISIBLE) {
+            osd.alpha = 0f
             osd.translationY = top - act.dp(12)
-            osd.animate().translationY(top).setDuration(200)
-                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
-        } else {
-            osd.translationY = top
+            osd.visibility = View.VISIBLE
         }
-        osd.fadeIn(160)
+        osd.animate().alpha(1f).translationY(top).setDuration(200)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         act.ui.removeCallbacks(osdHide)
         act.ui.postDelayed(osdHide, duration)
+    }
+
+    /** Messages sit below the header card while the controls are up, so neither covers the other. */
+    private fun osdTop() = if (up) act.dp(112).toFloat() else 0f
+
+    /** The controls came or went with a message showing: it slides to its new spot. */
+    private fun moveOsd() {
+        if (osd.visibility != View.VISIBLE) return
+        osd.animate().translationY(osdTop()).setDuration(200)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
     }
 
     /** The message's icon, dark on a small green disc. */

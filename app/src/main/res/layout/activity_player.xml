@@ -41,24 +41,6 @@
             android:progressDrawable="@drawable/seek_progress"
             android:visibility="gone" />
 
-        <!-- Every message the player shows (seeking, quality, follows…) drops in here, top centre. -->
-        <TextView
-            android:id="@+id/osd"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="32dp"
-            android:background="@drawable/bg_toast"
-            android:drawablePadding="12dp"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center_vertical"
-            android:paddingStart="8dp"
-            android:paddingTop="8dp"
-            android:paddingEnd="22dp"
-            android:paddingBottom="8dp"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:visibility="gone" />
 
         <TextView
             android:id="@+id/stats"
@@ -280,8 +262,8 @@
                     android:layout_marginEnd="-12dp"
                     android:background="@null"
                     android:focusable="true"
-                    android:maxHeight="10dp"
-                    android:minHeight="4dp"
+                    android:maxHeight="5dp"
+                    android:minHeight="5dp"
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp"
                     android:progressDrawable="@drawable/seek_progress"
@@ -464,6 +446,26 @@
                     android:textSize="15sp" />
             </LinearLayout>
         </FrameLayout>
+
+        <!-- Every message the player shows (seeking, quality, follows…) drops in here, top centre;
+             last in the stage, so it's drawn above the controls and their header card. -->
+        <TextView
+            android:id="@+id/osd"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="32dp"
+            android:background="@drawable/bg_toast"
+            android:drawablePadding="12dp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="22dp"
+            android:paddingBottom="8dp"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:visibility="gone" />
     </FrameLayout>
 
     <!-- Chat -->
