@@ -17,40 +17,64 @@
 > owner. See [Disclaimer](#disclaimer).
 
 <p align="center">
-  <img src="docs/screenshots/home.png" alt="Home screen" width="49%">
-  <img src="docs/screenshots/player.png" alt="Live stream with chat" width="49%">
-  <img src="docs/screenshots/multiview.png" alt="Multi-view" width="49%">
-  <img src="docs/screenshots/player-settings.png" alt="Player settings" width="49%">
+  <img src="docs/screenshots/home.png" alt="Home, with the featured stream playing in the banner" width="49%">
+  <img src="docs/screenshots/player.png" alt="Live stream with chat beside the video" width="49%">
+  <img src="docs/screenshots/multiview.png" alt="Multi-view with four live channels" width="49%">
+  <img src="docs/screenshots/channel.png" alt="Channel page with past broadcasts and clips" width="49%">
 </p>
 
 <details>
 <summary>More screenshots</summary>
 <p align="center">
+  <img src="docs/screenshots/live-previews.png" alt="Live previews playing in the cards on Home" width="49%">
+  <img src="docs/screenshots/clips.png" alt="Top clips on Home" width="49%">
+  <img src="docs/screenshots/player-settings.png" alt="Player settings" width="49%">
+  <img src="docs/screenshots/search.png" alt="Search with the on-screen keyboard" width="49%">
   <img src="docs/screenshots/browse.png" alt="Browse categories" width="49%">
   <img src="docs/screenshots/category.png" alt="Category" width="49%">
-  <img src="docs/screenshots/channel.png" alt="Channel page with past broadcasts" width="49%">
-  <img src="docs/screenshots/clips.png" alt="Top clips on Home" width="49%">
-  <img src="docs/screenshots/search.png" alt="Search" width="49%">
   <img src="docs/screenshots/settings.png" alt="Settings" width="49%">
   <img src="docs/screenshots/sign-in.png" alt="Sign in with your phone" width="49%">
 </p>
 </details>
 
-## Features
+## <img src="docs/icons/features.png" width="24" height="27" align="top"> Features
 
-- **Home**: live channels you follow, Continue watching, Recently watched, top streams in your
+### <img src="docs/icons/watching.png" width="20" height="22" align="top"> Watching
+- **Player:** rewind live streams back to the start, quality and speed, rolling TV-style captions,
+  sleep timer, loudness equalization and picture-in-picture
+- **Multi-view:** watch up to 4 live channels at once; the highlighted one plays sound
+- **Past broadcasts:** resume or start over, seek previews while you scrub, and the original chat
+  replayed in time with the video
+- **Live previews:** rest on a stream and it starts playing, muted, right in the card or Home banner
+- **Up next:** when a stream ends, Sidekick suggests what to watch next, and can follow raids
+
+### <img src="docs/icons/chat.png" width="20" height="22" align="top"> Chat
+- **Your layout:** beside or over the video, anywhere on screen at any size, with its own text size
+  and see-through backing. Each channel remembers its own layout
+- **Everything Kick shows:** 7TV emotes, badges, pinned messages, polls and predictions with live results
+- **Calmer chat:** hide bots and !commands, calm busy chats, add timestamps
+- **Chat from your phone:** scan a QR code to read and send messages from your phone
+
+### <img src="docs/icons/discover.png" width="20" height="22" align="top"> Finding something to watch
+- **Home:** live channels you follow, Continue watching, Recently watched, top streams in your
   language, today's top clips and popular categories
-- **Player**: rewind live streams back to the start, quality and speed, captions, sleep timer,
-  loudness equalization, picture-in-picture
-- **Chat** beside or over the video, with 7TV emotes and filters (hide bots and !commands, calm busy chats)
-- **Multi-view**: watch up to 4 live channels at once; the highlighted one plays sound
-- **Following**: your Kick account's follows, plus favorites saved on the TV, with go-live alerts
-- **Channel pages** with past broadcasts (resume where you left off) and popular clips
+- **Search** with an on-screen keyboard (or your voice), split into live streams, categories and channels
+- **Browse** categories, and hide the ones you never want to see (like Slots & Casino)
+- **Channel pages** with past broadcasts and clips
+
+### <img src="docs/icons/following.png" width="20" height="22" align="top"> Following
+- **Your Kick follows,** plus favorites saved on the TV, with go-live alerts and a live count
+- **Sign in** by scanning a QR code with your phone
+
+### <img src="docs/icons/tv.png" width="20" height="22" align="top"> Made for the TV
+- **Built for the remote,** light enough for smaller Fire TV sticks
 - **TV home screen** (Android TV / Google TV): a "Live on Kick" row and Play Next for past broadcasts
-- **Sign in** by scanning a QR code with your phone, or with the remote's on-screen pointer
+- **Make it yours:** fonts, card size, start-up page and page transitions
 - **Automatic updates** straight from this page
 
-## Install
+<a name="install"></a>
+
+## <img src="docs/icons/install.png" width="24" height="27" align="top"> Install
 
 **Download link (always the newest version):**
 
@@ -81,7 +105,7 @@ Sidekick checks this page for a new version each time it opens and offers to ins
 (Settings → Automatic updates: every open, once a day, or off). The first time, Android asks you to
 allow Sidekick to install apps. Your settings and sign-in are kept.
 
-## Using it
+## <img src="docs/icons/remote.png" width="24" height="27" align="top"> Using it
 
 | Remote | Does |
 | --- | --- |
@@ -92,13 +116,15 @@ allow Sidekick to install apps. Your settings and sign-in are kept.
 | **☰** while watching | Player settings: quality, chat, multi-view, sleep timer… |
 | **Home** while watching | Keep watching in a corner (picture-in-picture, where supported) |
 
-## Privacy
+## <img src="docs/icons/privacy.png" width="24" height="27" align="top"> Privacy
 
 No ads, no analytics, no accounts of our own. Your Kick sign-in is stored encrypted on the TV and only
 sent to Kick. Phone sign-in sends your login to the TV over your home network, so use it on a network
 you trust. Full details: [PRIVACY.md](PRIVACY.md).
 
-## Disclaimer
+<a name="disclaimer"></a>
+
+## <img src="docs/icons/disclaimer.png" width="24" height="27" align="top"> Disclaimer
 
 Sidekick is an independent, unofficial project. It is not affiliated with, endorsed by or connected to
 Kick or its owners. "Kick" and the Kick logo are trademarks of their respective owner.
@@ -107,7 +133,7 @@ Kick doesn't offer an official API for TV apps, so Sidekick uses the same public
 kick.com website. Kick can change these at any time, which may break features until an update is
 released. Streams, chat and other content belong to their creators and are shown as Kick serves them.
 
-## Contributing
+## <img src="docs/icons/contributing.png" width="24" height="27" align="top"> Contributing
 
 Bug reports and ideas are welcome, so please [open an issue](https://github.com/DIRIKtv/sidekick/issues/new/choose).
 Pull requests are welcome too; for anything large, open an issue first so we can talk it through.
@@ -135,7 +161,7 @@ Release builds are signed with `keystore/sidekick-release.jks`, configured by `k
    notes built from that CHANGELOG.md section. Installed apps offer it the next time they're opened.
 </details>
 
-## License
+## <img src="docs/icons/license.png" width="24" height="27" align="top"> License
 
 [MIT](LICENSE) © DIRIKtv
 
