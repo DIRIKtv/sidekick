@@ -15,6 +15,7 @@
 
     <ImageView
         android:id="@+id/icon"
+        android:importantForAccessibility="no"
         android:layout_width="22dp"
         android:layout_height="22dp"
         android:layout_marginEnd="14dp"
@@ -58,6 +59,7 @@
 
     <ImageView
         android:id="@+id/trail"
+        android:importantForAccessibility="no"
         android:layout_width="22dp"
         android:layout_height="22dp"
         android:layout_marginStart="8dp"

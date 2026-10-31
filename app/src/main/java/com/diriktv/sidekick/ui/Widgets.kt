@@ -7,7 +7,6 @@ import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PathMeasure
 import android.graphics.RectF
 import android.graphics.Shader
 import android.os.SystemClock
@@ -32,7 +31,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlin.math.sin
 
-// Native ports of Bencho blocks (bencho.dev): shimmer text, trace loader, rolling counter,
+// Native ports of Bencho blocks (bencho.dev): shimmer text, swirling loader (loading-ui), rolling counter,
 // liquid toggle, search (Seek) and step player. Each one drives its own animation from onDraw
 // and stops asking for frames as soon as it has settled.
 
@@ -128,21 +127,19 @@ class ShimmerTextView @JvmOverloads constructor(context: Context, attrs: Attribu
 }
 
 /**
- * Loading mark: a dash running round its own faint rounded-square track at one steady speed,
- * its length breathing on a slower clock so it never stalls or pinches.
+ * Loading mark (loading-ui's Swirling): a ring of round-capped dashes that slowly turns while its
+ * dash pattern stretches from a dot into a full circle and back again.
  */
-class TraceLoader @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
+class SwirlingLoader @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
     View(context, attrs) {
     var color: Int = context.getColor(R.color.kick_green)
         set(value) { field = value; invalidate() }
 
     private val still = context.motionOff()
-    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val path = Path()
-    private val segment = Path()
-    private val measure = PathMeasure()
-    private var length = 0f
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val ease = android.view.animation.PathInterpolator(0.42f, 0f, 0.58f, 1f)
+    private val oval = RectF()
+    private var unit = 1f
     private val start = SystemClock.uptimeMillis()
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -151,37 +148,44 @@ class TraceLoader @JvmOverloads constructor(context: Context, attrs: AttributeSe
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        // Built on a 40-unit square drawn at four fifths of the view, like the block in its slot.
-        val u = min(w, h) * 0.8f / 40f
-        val cx = w / 2f
-        val cy = h / 2f
-        path.reset()
-        path.addRoundRect(RectF(cx - 16 * u, cy - 16 * u, cx + 16 * u, cy + 16 * u), 9 * u, 9 * u, Path.Direction.CW)
-        measure.setPath(path, true)
-        length = measure.length
-        track.strokeWidth = 3.5f * u
-        dash.strokeWidth = 3.5f * u
+        // Drawn on the original's 800-unit square: a 200-unit circle with a 50-unit stroke.
+        unit = min(w, h) / 800f
+        oval.set(w / 2f - 200 * unit, h / 2f - 200 * unit, w / 2f + 200 * unit, h / 2f + 200 * unit)
+        ring.strokeWidth = 50 * unit
     }
 
     override fun onDraw(canvas: Canvas) {
-        track.color = (color and 0xFFFFFF) or (0x24 shl 24)
-        dash.color = color
-        canvas.drawPath(path, track)
-        val now = if (still) 0L else SystemClock.uptimeMillis() - start
-        val lap = (now % 1400) / 1400f
-        val swing = (now % 4200) / 2100f
-        val reach = (1 - cos(PI * (if (swing > 1f) 2f - swing else swing))).toFloat() / 2f
-        val from = lap * length
-        val to = from + mix(0.16f, 0.30f, reach) * length
-        segment.reset()
-        if (to <= length) {
-            measure.getSegment(from, to, segment, true)
-        } else {
-            measure.getSegment(from, length, segment, true)
-            measure.getSegment(0f, to - length, segment, true)
+        val now = if (still) DASH_MS / 2 else SystemClock.uptimeMillis() - start
+        // The dash runs forwards then backwards (alternate), easing in and out of each keyframe.
+        val leg = (now % (DASH_MS * 2)) / DASH_MS.toFloat()
+        val t = if (leg > 1f) 2f - leg else leg
+        val first = t < 0.5f
+        val k = ease.getInterpolation(if (first) t * 2 else t * 2 - 1)
+        val dash = if (first) mix(1f, 400f, k) else mix(400f, 800f, k)
+        val gap = if (first) mix(800f, 400f, k) else mix(400f, 1f, k)
+        val offset = if (first) mix(0f, -200f, k) else mix(-200f, -800f, k)
+        ring.color = color
+        canvas.save()
+        canvas.rotate((now % SPIN_MS) / SPIN_MS.toFloat() * 360f, width / 2f, height / 2f)
+        // The SVG dash pattern, drawn as arcs (a dash effect would mean a new object every frame):
+        // dashes of [dash] units every [dash] + [gap], shifted by [offset], round the circle.
+        val around = (2 * PI * 200).toFloat()
+        val period = dash + gap
+        // A dash covers distance L where (L + offset) mod period < dash; start one period early.
+        var s = ((-offset) % period + period) % period - period
+        while (s < around) {
+            val from = max(s, 0f)
+            val to = min(s + dash, around)
+            if (to > from) canvas.drawArc(oval, from / around * 360f, (to - from) / around * 360f, false, ring)
+            s += period
         }
-        canvas.drawPath(segment, dash)
+        canvas.restore()
         if (!still) postInvalidateOnAnimation()
+    }
+
+    private companion object {
+        const val DASH_MS = 1500L
+        const val SPIN_MS = 2000L
     }
 }
 

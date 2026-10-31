@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg">
+    tools:ignore="MergeRootFrame">
 
     <ImageView
         android:id="@+id/bannerBg"
+        android:importantForAccessibility="no"
         android:layout_width="match_parent"
         android:layout_height="260dp"
         android:alpha="0.55"
@@ -25,7 +27,7 @@
         android:paddingEnd="40dp"
         android:paddingBottom="30dp" />
 
-    <com.diriktv.sidekick.ui.TraceLoader
+    <com.diriktv.sidekick.ui.SwirlingLoader
         android:id="@+id/progress"
         android:layout_width="48dp"
         android:layout_height="48dp"

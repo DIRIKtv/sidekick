@@ -35,7 +35,7 @@
             android:paddingBottom="3dp"
             android:text="LIVE"
             android:textColor="#FFFFFF"
-            android:textSize="10sp" />
+            android:textSize="11sp" />
 
         <TextView
             android:id="@+id/viewers"

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:clipChildren="false"
@@ -11,6 +12,7 @@
 
     <FrameLayout
         android:id="@+id/hero"
+        tools:ignore="UselessParent"
         android:layout_width="match_parent"
         android:layout_height="290dp"
         android:focusable="true"
@@ -32,6 +34,7 @@
 
             <ImageView
                 android:id="@+id/heroImage"
+                android:importantForAccessibility="no"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:scaleType="centerCrop" />
@@ -55,7 +58,8 @@
             android:gravity="bottom"
             android:orientation="vertical"
             android:paddingStart="32dp"
-            android:paddingBottom="24dp">
+            android:paddingBottom="24dp"
+            tools:ignore="RtlSymmetry">
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -89,10 +93,12 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
                 android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                tools:ignore="UseCompoundDrawables">
 
                 <ImageView
                     android:id="@+id/heroAvatar"
+                    android:importantForAccessibility="no"
                     android:layout_width="44dp"
                     android:layout_height="44dp"
                     android:layout_marginEnd="14dp" />

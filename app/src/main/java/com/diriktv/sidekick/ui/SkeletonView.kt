@@ -17,6 +17,7 @@ import com.diriktv.sidekick.R
  * a spinner. [HOME] sketches the banner and a couple of rows; a grid sketches [columns] cards of
  * the given shape. It fades out when hidden.
  */
+@android.annotation.SuppressLint("ViewConstructor") // only ever built in code, never from XML
 class SkeletonView(
     context: Context,
     private val columns: Int = 0,
@@ -27,6 +28,8 @@ class SkeletonView(
 ) : View(context) {
     private val shape = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.surface) }
     private val sheen = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) }
+    private var sheenFor = -1f
+    private val sheenAt = android.graphics.Matrix()
     private val r = RectF()
     private val still = context.motionOff()
     private val born = SystemClock.uptimeMillis()
@@ -54,8 +57,14 @@ class SkeletonView(
             val t = ((SystemClock.uptimeMillis() - born) % 1600) / 1600f
             val band = w * 0.25f
             val x = -band + (w + band * 2) * t
-            sheen.shader = LinearGradient(x - band, 0f, x + band, h * 0.3f,
-                intArrayOf(0x00FFFFFF, 0x14FFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+            // Built for this size once; each frame only slides it along.
+            if (sheenFor != w + h) {
+                sheen.shader = LinearGradient(-band, 0f, band, h * 0.3f,
+                    intArrayOf(0x00FFFFFF, 0x14FFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+                sheenFor = w + h
+            }
+            sheenAt.setTranslate(x, 0f)
+            sheen.shader.setLocalMatrix(sheenAt)
             canvas.drawRect(0f, 0f, w, h, sheen)
             postInvalidateOnAnimation()
         }

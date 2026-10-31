@@ -29,6 +29,8 @@ class LaunchCurtain(context: Context) : View(context) {
     private val bgColor = context.getColor(R.color.bg)
     private val bg = Paint().apply { color = bgColor }
     private val shine = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) }
+    private var shineFor = -1f
+    private val shineAt = android.graphics.Matrix()
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.surface2) }
     private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.kick_green) }
     private val bar = RectF()
@@ -85,8 +87,14 @@ class LaunchCurtain(context: Context) : View(context) {
             val cycle = ((t - born) % SWEEP_MS) / SWEEP_MS.toFloat()
             val band = now.width() * 0.35f
             val x = now.left - band + (now.width() + band * 2) * easeInOut(cycle)
-            shine.shader = LinearGradient(x - band / 2, now.top, x + band / 2, now.bottom,
-                intArrayOf(0x00FFFFFF, 0x99FFFFFF.toInt(), 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+            // Built for the logo's size once; each frame only slides it along.
+            if (shineFor != band) {
+                shine.shader = LinearGradient(-band / 2, now.top, band / 2, now.bottom,
+                    intArrayOf(0x00FFFFFF, 0x99FFFFFF.toInt(), 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+                shineFor = band
+            }
+            shineAt.setTranslate(x, 0f)
+            shine.shader.setLocalMatrix(shineAt)
             canvas.drawRect(now, shine)
         }
         canvas.restoreToCount(layer)

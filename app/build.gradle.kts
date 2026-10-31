@@ -62,6 +62,12 @@ android {
     lint {
         // Media3 marks much of its API @UnstableApi; that's fine for an app.
         disable += "UnsafeOptInUsageError"
+        // Style suggestions only: core-ktx shorthands for code that's already correct.
+        disable += "UseKtx"
+        // English only, with no translations planned; text lives in the layouts and code.
+        disable += listOf("HardcodedText", "SetTextI18n")
+        // TVs are xhdpi; one well-sized copy of each picture is enough and Android scales the rest.
+        disable += listOf("IconDensities", "IconMissingDensityFolder")
     }
 }
 
@@ -90,6 +96,10 @@ dependencies {
     implementation("io.coil-kt.coil3:coil:3.4.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
     implementation("com.google.zxing:core:3.5.3")
+
+    // Debug builds only: watches for leaked screens and views and reports them to logcat
+    // (adb logcat -s LeakCanary). Never part of the release APK.
+    debugImplementation("com.squareup.leakcanary:leakcanary-android:2.14")
 
     testImplementation("junit:junit:4.13.2")
     // The real org.json, so tests can parse Kick's JSON (android.jar only has stubs).

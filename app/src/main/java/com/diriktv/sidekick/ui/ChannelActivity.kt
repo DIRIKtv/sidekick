@@ -14,12 +14,13 @@ import com.diriktv.sidekick.R
 import com.diriktv.sidekick.data.ChannelInfo
 import com.diriktv.sidekick.data.Follows
 import com.diriktv.sidekick.data.KickApi
+import com.diriktv.sidekick.data.LiveStream
 import com.diriktv.sidekick.data.Prefs
 import com.diriktv.sidekick.data.Video
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-/** Channel page: live status, favorite toggle and past broadcasts. */
+/** Channel page: live status, favorite toggle, and tabs for past broadcasts and clips. */
 class ChannelActivity : FragmentActivity() {
     companion object {
         const val EXTRA_SLUG = "slug"
@@ -32,6 +33,9 @@ class ChannelActivity : FragmentActivity() {
     private var clips: List<com.diriktv.sidekick.data.Clip> = emptyList()
     private lateinit var vodAdapter: GridAdapter
     private var header: View? = null
+    /** The open tab: 0 past broadcasts, 1 clips. */
+    private var tab = 0
+    private var loaded = false
 
     private val headerAdapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         override fun getItemCount() = if (channel != null) 1 else 0
@@ -66,6 +70,15 @@ class ChannelActivity : FragmentActivity() {
         }
         list.adapter = ConcatAdapter(headerAdapter, vodAdapter)
         list.itemAnimator = null
+        // Moving onto a tab opens it. Coming up from the grid (or down from the buttons) lands
+        // on the open tab, so passing through doesn't switch to the other one.
+        list.viewTreeObserver.addOnGlobalFocusChangeListener { old, new ->
+            val tabs = tabViews()
+            val i = tabs.indexOf(new)
+            if (i < 0) return@addOnGlobalFocusChangeListener
+            if (old !in tabs && i != tab) tabs[tab].requestFocus()
+            else if (i != tab) { tab = i; submitVideos(switched = true) }
+        }
         load()
     }
 
@@ -89,9 +102,11 @@ class ChannelActivity : FragmentActivity() {
                 return@launch
             }
             findViewById<ImageView>(R.id.bannerBg).loadThumb(channel?.banner)
-            headerAdapter.notifyDataSetChanged()
+            headerAdapter.notifyItemInserted(0)
             videos = vids.await()
             clips = clipsJob.await()
+            if (videos.isEmpty() && clips.isNotEmpty()) tab = 1
+            loaded = true
             submitVideos()
             findViewById<View>(R.id.progress).setVisible(false)
             list.post {
@@ -102,19 +117,36 @@ class ChannelActivity : FragmentActivity() {
         }
     }
 
-    private fun submitVideos() {
-        val slug = channel?.slug ?: return
-        val items = videos.map<Video, GridItem> { v ->
-            val pos = prefs.vodPosition(v.uuid)
-            GridItem.Vod(v, slug, if (v.durationMs > 0) pos.toFloat() / v.durationMs else 0f)
-        }.toMutableList()
-        if (clips.isNotEmpty()) {
-            items += GridItem.Header("Popular clips")
-            items += clips.map { GridItem.Clip(it) }
+    private fun tabViews(): List<View> = header?.let { listOf<View>(it.findViewById(R.id.tabVods), it.findViewById(R.id.tabClips)) }.orEmpty()
+
+    private fun submitVideos(switched: Boolean = false) {
+        val c = channel ?: return
+        val items: List<GridItem> = if (tab == 0) {
+            // The broadcast that's still going is shown as the live stream itself, not its recording.
+            val live = if (c.isLive) listOf(GridItem.Stream(LiveStream(c.slug, "Current stream", c.liveTitle.orEmpty(),
+                c.liveViewers, videos.firstOrNull { it.isLive }?.thumbnail ?: c.liveThumbnail, c.avatar, c.liveCategory, null, c.liveStartTime))) else emptyList()
+            live + videos.filterNot { it.isLive && c.isLive }.map { v ->
+                val pos = prefs.vodPosition(v.uuid)
+                GridItem.Vod(v, c.slug, if (v.durationMs > 0) pos.toFloat() / v.durationMs else 0f)
+            }
+        } else {
+            clips.map { GridItem.Clip(it) }
         }
-        if (vodAdapter.items.size == items.size) vodAdapter.update(items) else vodAdapter.submit(items)
-        header?.findViewById<TextView>(R.id.vodHeader)?.text =
-            if (videos.isEmpty()) "No past broadcasts" else "Past broadcasts"
+        when {
+            switched -> vodAdapter.swap(items)
+            vodAdapter.items.size == items.size -> vodAdapter.update(items)
+            else -> vodAdapter.submit(items)
+        }
+        showTabs()
+    }
+
+    private fun showTabs() {
+        val h = header ?: return
+        tabViews().forEachIndexed { i, t -> t.isActivated = i == tab }
+        h.findViewById<TextView>(R.id.tabEmpty).apply {
+            text = if (tab == 0) "No past broadcasts" else "No clips yet"
+            setVisible(loaded && vodAdapter.items.isEmpty())
+        }
     }
 
     private fun bindHeader(v: View) {
@@ -146,6 +178,9 @@ class ChannelActivity : FragmentActivity() {
         }
         updateFav()
         fav.focusZoom(1.05f)
+        // OK on a tab goes down into what it shows.
+        tabViews().forEach { t -> t.setOnClickListener { list.layoutManager?.findViewByPosition(headerAdapter.itemCount)?.requestFocus() } }
+        showTabs()
         fav.setOnClickListener {
             if (Follows.isFollowing(this, c.slug)) {
                 OptionSheet.confirm(this, "Unfollow ${c.username}?", "They'll be removed from Following.",

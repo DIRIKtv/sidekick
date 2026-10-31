@@ -2,7 +2,6 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
     android:orientation="horizontal">
 
     <LinearLayout
@@ -44,7 +43,7 @@
                 <TextView android:id="@+id/navFollowing" style="@style/NavItem" android:background="@null" android:drawableStart="@drawable/ic_heart" android:text="Following" />
                 <TextView android:id="@+id/navBrowse" style="@style/NavItem" android:background="@null" android:drawableStart="@drawable/ic_grid" android:text="Browse" />
                 <TextView android:id="@+id/navSearch" style="@style/NavItem" android:background="@null" android:drawableStart="@drawable/ic_search" android:text="Search" />
-                <TextView android:id="@+id/navSettings" style="@style/NavItem" android:background="@null" android:drawableStart="@drawable/ic_tune" android:text="Settings" />
+                <TextView android:id="@+id/navSettings" style="@style/NavItem" android:nextFocusDown="@+id/navAccount" android:background="@null" android:drawableStart="@drawable/ic_tune" android:text="Settings" />
             </LinearLayout>
         </FrameLayout>
 
@@ -71,20 +70,27 @@
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
 
+        <!-- Who's signed in; select it to sign in, or for the account's options. -->
         <LinearLayout
             android:id="@+id/navAccount"
+            android:nextFocusUp="@id/navSettings"
+            android:nextFocusLeft="@id/navAccount"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_marginTop="14dp"
+            android:layout_height="38dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_nav_item"
+            android:focusable="true"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
 
             <ImageView
                 android:id="@+id/navAvatar"
                 android:layout_width="26dp"
                 android:layout_height="26dp"
                 android:layout_marginEnd="8dp"
+                android:duplicateParentState="true"
                 android:importantForAccessibility="no" />
 
             <TextView
@@ -92,9 +98,10 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:duplicateParentState="true"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="@color/text_secondary"
+                android:textColor="@color/nav_text"
                 android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>

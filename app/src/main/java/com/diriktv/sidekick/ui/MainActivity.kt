@@ -62,6 +62,15 @@ class MainActivity : FragmentActivity() {
                 } else false
             }
         }
+        findViewById<View>(R.id.navAccount).apply {
+            // Signed out it opens sign-in; signed in, the account's options (in Settings).
+            setOnClickListener { (page(4) as SettingsPage).openAccount() }
+            setOnKeyListener { _, keyCode, event ->
+                if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    pages[active]?.focusContent() ?: false
+                } else event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+            }
+        }
         // Back via the dispatcher: Android 16+ no longer calls onBackPressed for apps targeting it.
         onBackPressedDispatcher.addCallback(this) { handleBack() }
         if (savedInstanceState == null) raiseCurtain()
@@ -123,13 +132,14 @@ class MainActivity : FragmentActivity() {
     }
 
     /** The account at the bottom of the menu: avatar and name, or a nudge to sign in. */
-    private fun showAccount() {
+    fun showAccount() {
         val prefs = com.diriktv.sidekick.data.Prefs(this)
         val name = prefs.accountName?.takeIf { com.diriktv.sidekick.data.Follows.signedIn }
-        findViewById<TextView>(R.id.navName).text = name ?: "Not signed in"
+        findViewById<TextView>(R.id.navName).text = name ?: "Sign in"
+        findViewById<View>(R.id.navAccount).contentDescription = if (name != null) "Signed in as $name" else "Sign in to Kick"
         findViewById<android.widget.ImageView>(R.id.navAvatar).apply {
             if (name != null) { imageTintList = null; loadAvatar(prefs.accountAvatar, name) }
-            else { setImageResource(R.drawable.ic_account); imageTintList = getColorStateList(R.color.text_secondary) }
+            else { setImageResource(R.drawable.ic_account); imageTintList = getColorStateList(R.color.nav_text) }
         }
     }
 

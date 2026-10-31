@@ -424,13 +424,19 @@ class BadgedIcon(
  * Only one card has focus at a time, so one animator serves them all.
  */
 object FocusGlow {
-    private var target: View? = null
+    // Held weakly, and the pulse stops once the card leaves the screen, so a screen that closes
+    // with a card still focused isn't kept alive by the animation.
+    private var target: java.lang.ref.WeakReference<View>? = null
     private val pulse = android.animation.ValueAnimator.ofInt(255, 120).apply {
         duration = 1100
         repeatMode = android.animation.ValueAnimator.REVERSE
         repeatCount = android.animation.ValueAnimator.INFINITE
         interpolator = android.view.animation.AccelerateDecelerateInterpolator()
-        addUpdateListener { a -> target?.foreground?.alpha = a.animatedValue as Int }
+        addUpdateListener { a ->
+            val v = target?.get()
+            if (v == null || !v.isAttachedToWindow) { target = null; a.cancel() }
+            else v.foreground?.alpha = a.animatedValue as Int
+        }
     }
 
     /** [card] gained or lost focus; the glow runs on the view inside it that draws the outline. */
@@ -438,10 +444,10 @@ object FocusGlow {
         val outline = findOutline(card) ?: return
         if (focused) {
             if (outline.context.motionOff()) return
-            target?.foreground?.alpha = 255
-            target = outline
+            target?.get()?.foreground?.alpha = 255
+            target = java.lang.ref.WeakReference(outline)
             pulse.start()
-        } else if (target === outline) {
+        } else if (target?.get() === outline) {
             pulse.cancel()
             outline.foreground?.alpha = 255
             target = null

@@ -25,7 +25,7 @@ import com.diriktv.sidekick.data.KickApi
 import com.diriktv.sidekick.data.Prefs
 import com.diriktv.sidekick.ui.Nav
 import com.diriktv.sidekick.ui.OptionSheet
-import com.diriktv.sidekick.ui.TraceLoader
+import com.diriktv.sidekick.ui.SwirlingLoader
 import com.diriktv.sidekick.ui.dp
 import com.diriktv.sidekick.ui.setVisible
 import kotlinx.coroutines.launch
@@ -49,7 +49,7 @@ class MultiViewActivity : FragmentActivity() {
         val video = PlayerView(this@MultiViewActivity)
         val label = TextView(this@MultiViewActivity)
         val status = TextView(this@MultiViewActivity)
-        val loader = TraceLoader(this@MultiViewActivity)
+        val loader = SwirlingLoader(this@MultiViewActivity)
         var player: ExoPlayer? = null
         var name = slug
         var retries = 0

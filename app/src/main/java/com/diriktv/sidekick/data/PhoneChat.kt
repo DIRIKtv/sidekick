@@ -16,6 +16,7 @@ import java.util.concurrent.Executors
  * one scan keeps working as you change streams. Its key is kept between runs, so a phone that
  * saved the page can come straight back.
  */
+@android.annotation.SuppressLint("StaticFieldLeak") // holds only the application context
 object PhoneChat {
     /** The live chat the TV is showing, set by the player. */
     data class Target(

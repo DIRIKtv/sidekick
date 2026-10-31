@@ -55,7 +55,7 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
     var showTimestamps = false
     /** A soft shadow under the text, for chat over the video with little or no backing. */
     var textShadow = false
-        set(value) { if (field != value) { field = value; notifyDataSetChanged() } }
+        set(value) { if (field != value) { field = value; restyle() } }
 
     private val timeFormat = android.text.format.DateFormat.getTimeFormat(context)
     private val amPm = Regex("""\s?[AaPp]\.?[Mm]\.?$""")
@@ -96,9 +96,14 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
     }
 
     fun clear() {
+        val n = messages.size
         messages.clear()
-        notifyDataSetChanged()
+        notifyItemRangeRemoved(0, n)
     }
+
+    /** Text size, spacing or style changed: every row redraws in place (keeping scroll position). */
+    // With a payload the rows rebind in place rather than cross-fading.
+    fun restyle() = notifyItemRangeChanged(0, itemCount, "style")
 
     override fun getItemCount() = messages.size
 

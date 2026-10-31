@@ -17,7 +17,13 @@ import java.util.concurrent.Executors
 class PairingServer(
     private val onCredentials: (user: String, password: String) -> Unit,
     private val onCode: (code: String) -> Unit,
+    /** The Sidekick wordmark (PNG bytes) shown at the top of the page. */
+    logo: ByteArray? = null,
 ) {
+    private val page = PAGE.replace("{{LOGO}}",
+        logo?.let { "<img class=\"logo\" alt=\"Sidekick\" src=\"data:image/png;base64,${android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)}\">" }
+            ?: "<div class=\"logo\">Sidekick</div>")
+
     val secret: String = ByteArray(12).also { SecureRandom().nextBytes(it) }
         .joinToString("") { "%02x".format(it) }
 
@@ -67,7 +73,7 @@ class PairingServer(
         if (req.query["k"] != secret) return respond(s, 403, "text/plain", "This link has expired. Scan the QR code on your TV again.")
 
         when {
-            method == "GET" && path == "/" -> respond(s, 200, "text/html; charset=utf-8", PAGE)
+            method == "GET" && path == "/" -> respond(s, 200, "text/html; charset=utf-8", page)
             method == "GET" && path == "/status" -> respond(s, 200, "application/json", status.toString())
             method == "POST" && path == "/login" -> {
                 val o = runCatching { JSONObject(body) }.getOrNull()
@@ -102,7 +108,7 @@ class PairingServer(
 <style>
 :root{--g:#53FC18;--bg:#0B0E0F;--s:#16191C;--s2:#24272C;--t:#EFEFF1;--t2:#A9ADB4;--t3:#71767E;--e:#3A3E45}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:28px 20px}
-.wrap{max-width:420px;margin:0 auto}.logo{color:var(--g);font-weight:900;font-size:34px;letter-spacing:.5px}
+.wrap{max-width:420px;margin:0 auto}.logo{display:block;color:var(--g);font-weight:900;font-size:34px;letter-spacing:.5px}img.logo{height:52px;width:auto}
 h1{font-size:22px;margin:18px 0 4px}p{color:var(--t2);margin:0 0 20px}
 .status{display:flex;gap:10px;align-items:center;padding:12px 14px;border-radius:10px;background:var(--s2);margin-bottom:6px;font-size:14px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--g);flex:none}.err{background:#3a1416;color:#ff8a8a}.err .dot{background:#ff5252}
@@ -151,7 +157,7 @@ h1{font-size:22px;margin:18px 0 4px}p{color:var(--t2);margin:0 0 20px}
 @keyframes run{from{stroke-dashoffset:.3}to{stroke-dashoffset:-1}}
 @media (prefers-reduced-motion:reduce){.shm::before,.fld input:focus~label span,.pay[data-phase=busy] .run{animation:none}.fld label,.gap,.go,.fold{transition-duration:.16s}}
 </style></head><body><div class="wrap">
-<div class="logo">Sidekick</div>
+{{LOGO}}
 <div id="v-form"><h1>Sign in on your TV</h1><p>Type your Kick login here and your TV signs in.</p></div>
 <div id="v-code" class="hide"><h1>Check your email</h1><p id="codemsg">Kick sent you a verification code. Enter it here.</p></div>
 <div id="st" class="status"><span class="dot"></span><span id="stt" class="shm" data-text="Connecting to your TV…">Connecting to your TV…</span></div>
@@ -163,7 +169,7 @@ h1{font-size:22px;margin:18px 0 4px}p{color:var(--t2);margin:0 0 20px}
 <form id="cf" class="pay hide" data-phase="idle"><div class="fold"><div class="fold-in">
  <div class="fld"><input id="c" inputmode="numeric" autocomplete="one-time-code" placeholder=" " required><label for="c">Code</label><i class="gap"></i></div>
 </div></div><button class="go"><span class="l l-idle">Verify</span><span class="l l-busy" aria-hidden="true"><svg width="64" height="4" viewBox="0 0 64 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="2" x2="62" y2="2" opacity=".28"/><line class="run" x1="2" y1="2" x2="62" y2="2" pathLength="1"/></svg></span><span class="l l-done"><svg class="chk" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" pathLength="1"/></svg>Signed in</span></button></form>
-<div class="small" id="note">Your login goes straight from this page to your TV over your home network, and from the TV to kick.com.</div>
+<div class="small" id="note">Your login goes straight from this page to your TV over your home network, and from the TV to kick.com. Sidekick is an unofficial app, not affiliated with Kick.</div>
 </div><script>
 var k=new URLSearchParams(location.search).get('k'),view='form',sentAt=0;
 function g(i){return document.getElementById(i)}

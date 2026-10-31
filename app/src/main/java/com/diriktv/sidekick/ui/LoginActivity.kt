@@ -154,7 +154,13 @@ class LoginActivity : FragmentActivity() {
     // region phone pairing
 
     private fun startPairing() {
-        val s = PairingServer(onCredentials = { u, p -> onPhoneCredentials(u, p) }, onCode = { onPhoneCode(it) })
+        val s = PairingServer(onCredentials = { u, p -> onPhoneCredentials(u, p) }, onCode = { onPhoneCode(it) },
+            logo = runCatching {
+                java.io.ByteArrayOutputStream().also { out ->
+                    android.graphics.BitmapFactory.decodeResource(resources, R.drawable.logo_wordmark)
+                        .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                }.toByteArray()
+            }.getOrNull())
         val url = if (s.start()) s.url() else null
         val qr = findViewById<ImageView>(R.id.qr)
         val urlText = findViewById<TextView>(R.id.pairUrl)

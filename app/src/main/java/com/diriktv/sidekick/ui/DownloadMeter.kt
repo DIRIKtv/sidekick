@@ -28,8 +28,14 @@ class DownloadMeter @JvmOverloads constructor(context: Context, attrs: Attribute
     private val green = context.getColor(R.color.kick_green)
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.surface2) }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = green }
-    private val sheen = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
+    // Both gradients are built once at unit size; each frame only moves and scales them.
+    private val sheen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = LinearGradient(-0.5f, 0f, 0.5f, 0f, intArrayOf(0x00FFFFFF, 0x66FFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+    }
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = RadialGradient(0f, 0f, 1f, intArrayOf((green and 0xFFFFFF) or (0x88 shl 24), green and 0xFFFFFF), null, Shader.TileMode.CLAMP)
+    }
+    private val place = android.graphics.Matrix()
     private val waiting = Paint(Paint.ANTI_ALIAS_FLAG)
     private val check = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -131,8 +137,9 @@ class DownloadMeter @JvmOverloads constructor(context: Context, attrs: Attribute
                 val t = ((now - born) % 1500) / 1500f
                 val bandW = max(context.dp(60).toFloat(), span * 0.35f)
                 val x = left - bandW + (span + bandW * 2) * t
-                sheen.shader = LinearGradient(x - bandW / 2, 0f, x + bandW / 2, 0f,
-                    intArrayOf(0x00FFFFFF, 0x66FFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+                place.setScale(bandW, 1f)
+                place.postTranslate(x, 0f)
+                sheen.shader.setLocalMatrix(place)
                 canvas.save()
                 canvas.clipRect(left, cy - half, fillRight, cy + half)
                 canvas.drawRoundRect(rect, half, half, sheen)
@@ -140,7 +147,9 @@ class DownloadMeter @JvmOverloads constructor(context: Context, attrs: Attribute
 
                 // A soft glow riding the leading edge.
                 val r = barH * 1.6f
-                glow.shader = RadialGradient(fillRight - half, cy, r, intArrayOf((green and 0xFFFFFF) or (0x88 shl 24), green and 0xFFFFFF), null, Shader.TileMode.CLAMP)
+                place.setScale(r, r)
+                place.postTranslate(fillRight - half, cy)
+                glow.shader.setLocalMatrix(place)
                 canvas.drawCircle(fillRight - half, cy, r, glow)
             }
         }

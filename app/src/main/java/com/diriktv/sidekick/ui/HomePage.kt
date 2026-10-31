@@ -355,6 +355,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         repeat(firstNetwork) { rows.removeAt(0) }
         rows.addAll(0, historyRows())
         rows.filter { it.local }.forEach { it.loadMore() }
+        @Suppress("NotifyDataSetChanged") // the history rows at the top were replaced wholesale
         rowAdapter.notifyDataSetChanged()
         if (keepFocus && !list.hasFocus()) list.post { focusContent() }
     }
@@ -406,6 +407,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
 
                 rows.clear()
                 rows += newRows
+                @Suppress("NotifyDataSetChanged") // every row is new
                 rowAdapter.notifyDataSetChanged()
                 // Only the rows near the top load now; the rest load as they scroll into view.
                 rows.take(EAGER_ROWS).forEach { it.loadMore() }

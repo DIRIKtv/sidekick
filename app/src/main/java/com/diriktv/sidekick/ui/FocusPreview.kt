@@ -28,6 +28,9 @@ import kotlinx.coroutines.launch
  * screen goes away. Pressing OK on a preview that's playing hands that player to the full-screen
  * player ([handOff]), so the stream carries straight on instead of starting from scratch.
  */
+// The card and its surface are only held while the preview plays, and are let go when focus moves
+// or the screen pauses (stop()), so no screen outlives its visit through them.
+@android.annotation.SuppressLint("StaticFieldLeak")
 object FocusPreview {
     /** A preview player passed to the full-screen player, with the leveler built into it. */
     class Handoff(val player: ExoPlayer, val leveler: LoudnessLeveler, val slug: String)

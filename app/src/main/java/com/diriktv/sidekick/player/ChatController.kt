@@ -224,7 +224,7 @@ internal class ChatController(private val act: PlayerActivity) {
     fun refreshStyle() {
         adapter.spacingDp = com.diriktv.sidekick.data.Prefs.CHAT_SPACINGS[prefs.chatSpacing.coerceIn(0, 2)].first
         adapter.emoteScale = prefs.chatEmoteScale
-        adapter.notifyDataSetChanged()
+        adapter.restyle()
         showPinned()
     }
 
@@ -301,12 +301,12 @@ internal class ChatController(private val act: PlayerActivity) {
 
     fun setTimestamps(on: Boolean) {
         adapter.showTimestamps = on
-        adapter.notifyDataSetChanged()
+        adapter.restyle()
     }
 
     fun setTextSize(sp: Int) {
         adapter.textSizeSp = sp
-        adapter.notifyDataSetChanged()
+        adapter.restyle()
     }
 
     /** Drops the connection and messages (switching to another channel). */
@@ -466,6 +466,7 @@ internal class ChatController(private val act: PlayerActivity) {
 }
 
 /** One answer of a poll: a bar filled to its share, with the answer and the percentage on top. */
+@android.annotation.SuppressLint("ViewConstructor") // only ever built in code, never from XML
 private class PollBar(context: android.content.Context, private val label: String, private val share: Float, private val highlight: Boolean) :
     View(context) {
     private val track = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
@@ -477,6 +478,9 @@ private class PollBar(context: android.content.Context, private val label: Strin
         typeface = com.diriktv.sidekick.ui.AppFonts.get(context, com.diriktv.sidekick.ui.AppFonts.Weight.MEDIUM)
     }
     private val rect = android.graphics.RectF()
+    private val pct = "${(share * 100).toInt()}%"
+    private var shown: CharSequence = label
+    private var shownFor = -1f
 
     override fun onDraw(canvas: android.graphics.Canvas) {
         val w = width.toFloat()
@@ -487,11 +491,14 @@ private class PollBar(context: android.content.Context, private val label: Strin
         rect.set(0f, 0f, (w * share).coerceAtLeast(h), h)
         canvas.drawRoundRect(rect, r, r, fill)
         val y = h / 2 - (text.ascent() + text.descent()) / 2
-        val pct = "${(share * 100).toInt()}%"
         text.color = if (highlight && share > 0.6f) 0xFF000000.toInt() else 0xFFF2F2F2.toInt()
         val pctW = text.measureText(pct)
         val room = w - pctW - context.dp(26)
-        val shown = android.text.TextUtils.ellipsize(label, android.text.TextPaint(text), room, android.text.TextUtils.TruncateAt.END)
+        // Shortened once per width, not on every frame.
+        if (room != shownFor) {
+            shown = android.text.TextUtils.ellipsize(label, android.text.TextPaint(text), room, android.text.TextUtils.TruncateAt.END)
+            shownFor = room
+        }
         canvas.drawText(shown, 0, shown.length, context.dp(10).toFloat(), y, text)
         canvas.drawText(pct, w - pctW - context.dp(10), y, text)
     }

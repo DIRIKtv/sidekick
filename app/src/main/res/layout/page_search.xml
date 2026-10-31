@@ -3,6 +3,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:baselineAligned="false"
     android:orientation="horizontal"
     android:paddingTop="28dp">
 
@@ -25,6 +26,7 @@
                 android:background="@null"
                 android:focusable="false"
                 android:hint="Search Kick"
+                android:importantForAutofill="no"
                 android:inputType="text"
                 android:paddingStart="50dp"
                 android:paddingEnd="16dp"
@@ -76,7 +78,7 @@
             android:textColor="@color/text_secondary"
             android:textSize="17sp" />
 
-        <com.diriktv.sidekick.ui.TraceLoader
+        <com.diriktv.sidekick.ui.SwirlingLoader
             android:id="@+id/progress"
             android:layout_width="48dp"
             android:layout_height="48dp"

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- No "Leaks" tile on the TV's launcher; leaks are read with adb logcat -s LeakCanary. -->
+    <bool name="leak_canary_add_launcher_icon">false</bool>
+</resources>

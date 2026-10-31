@@ -10,5 +10,4 @@
     <color name="text_secondary">#A9ADB4</color>
     <color name="live_red">#E91916</color>
     <color name="chat_bg">#E6111316</color>
-    <color name="chat_overlay_bg">#99000000</color>
 </resources>

@@ -178,6 +178,7 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
         private val KEY_ROWS = listOf("abcdef", "ghijkl", "mnopqr", "stuvwx", "yz1234", "567890")
     }
 
+    @android.annotation.SuppressLint("InflateParams") // added to the main screen later, with its own layout params
     override val view: View = android.view.LayoutInflater.from(act).inflate(R.layout.page_search, null)
     private val prefs = Prefs(act)
     private val query: EditText = view.findViewById(R.id.query)
@@ -938,6 +939,9 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
         })
     }
 
+    /** Sign-in, or the signed-in account's options (from the account at the bottom of the menu). */
+    fun openAccount() = accountMenu()
+
     private fun accountMenu() {
         if (!Follows.signedIn) {
             act.startActivity(android.content.Intent(act, LoginActivity::class.java))
@@ -950,6 +954,7 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                 },
                 OptionSheet.Item("Sign out", sub = "Favorites saved on this TV are kept", icon = R.drawable.ic_logout) {
                     Follows.signOut(act); it.dismiss(); render(); onChanged()
+                    (act as? MainActivity)?.showAccount()
                 },
             )
         })

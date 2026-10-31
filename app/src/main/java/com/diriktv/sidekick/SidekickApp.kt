@@ -19,6 +19,7 @@ import com.diriktv.sidekick.ui.LiveAlerts
 
 class SidekickApp : Application(), SingletonImageLoader.Factory, android.content.ComponentCallbacks2 {
     companion object {
+        @android.annotation.SuppressLint("StaticFieldLeak") // built with the application context
         private var meter: DefaultBandwidthMeter? = null
 
         /**

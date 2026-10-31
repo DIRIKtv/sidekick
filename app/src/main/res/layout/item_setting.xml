@@ -15,6 +15,7 @@
 
     <ImageView
         android:id="@+id/icon"
+        android:importantForAccessibility="no"
         android:layout_width="22dp"
         android:layout_height="22dp"
         android:layout_marginEnd="16dp"
@@ -72,6 +73,7 @@
 
     <ImageView
         android:id="@+id/chevron"
+        android:importantForAccessibility="no"
         android:layout_width="20dp"
         android:layout_height="20dp"
         android:layout_marginStart="6dp"

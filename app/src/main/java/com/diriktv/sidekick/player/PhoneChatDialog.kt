@@ -15,6 +15,7 @@ import com.diriktv.sidekick.ui.qrBitmap
 /** The QR code for chatting from a phone. */
 object PhoneChatDialog {
     fun show(act: PlayerActivity) {
+        @android.annotation.SuppressLint("InflateParams") // a dialog's content: it has no parent yet
         val root = LayoutInflater.from(act).inflate(R.layout.dialog_phone_chat, null)
         val url = PhoneChat.start(act)
         val qr = root.findViewById<ImageView>(R.id.qr)

@@ -13,6 +13,7 @@
 
         <ImageView
             android:id="@+id/avatar"
+            android:importantForAccessibility="no"
             android:layout_width="96dp"
             android:layout_height="96dp"
             android:layout_marginEnd="22dp" />
@@ -57,24 +58,38 @@
         android:textColor="@color/text_secondary"
         android:textSize="14sp" />
 
+    <!-- Unclipped so a focused button can grow without its ends being cut off. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="18dp"
+        android:clipChildren="false"
+        android:clipToPadding="false"
         android:orientation="horizontal">
 
         <TextView android:id="@+id/btnWatch" style="@style/Pill" android:drawableStart="@drawable/ic_play" android:text="Watch live" />
         <TextView android:id="@+id/btnFav" style="@style/Pill" android:drawableStart="@drawable/ic_heart_outline" android:text="Favorite" />
     </LinearLayout>
 
+    <!-- What the grid below shows; the open tab stays highlighted. -->
+    <LinearLayout
+        android:id="@+id/tabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="22dp"
+        android:orientation="horizontal">
+
+        <TextView android:id="@+id/tabVods" style="@style/ChannelTab" android:text="Past broadcasts" />
+        <TextView android:id="@+id/tabClips" style="@style/ChannelTab" android:text="Clips" />
+    </LinearLayout>
+
     <TextView
-        android:id="@+id/vodHeader"
+        android:id="@+id/tabEmpty"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="26dp"
         android:layout_marginStart="6dp"
-        android:fontFamily="sans-serif-medium"
-        android:text="Past broadcasts"
-        android:textColor="@color/text_primary"
-        android:textSize="19sp" />
+        android:layout_marginTop="18dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="15sp"
+        android:visibility="gone" />
 </LinearLayout>

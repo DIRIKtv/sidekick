@@ -63,6 +63,7 @@ class OptionSheet(private val context: Context) {
     }
 
     private val dialog = ComponentDialog(context, R.style.KickSheet)
+    @android.annotation.SuppressLint("InflateParams") // a dialog's content: it has no parent yet
     private val root = LayoutInflater.from(context).inflate(R.layout.sheet_options, null)
     private val panel: View = root.findViewById(R.id.panel)
     private val itemsView: LinearLayout = root.findViewById(R.id.items)

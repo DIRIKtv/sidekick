@@ -30,7 +30,7 @@ class UpdateFlow(private val act: FragmentActivity, private val release: Updater
 
     private fun notes(): String = ReleaseNotes.forTv(release.notes)
 
-    private fun sizeLabel() = if (release.sizeBytes > 0) String.format("%.1f MB", release.sizeBytes / 1_048_576f) else null
+    private fun sizeLabel() = if (release.sizeBytes > 0) String.format(java.util.Locale.getDefault(), "%.1f MB", release.sizeBytes / 1_048_576f) else null
 
     private var dialog: androidx.activity.ComponentDialog? = null
     private var job: kotlinx.coroutines.Job? = null
@@ -38,6 +38,7 @@ class UpdateFlow(private val act: FragmentActivity, private val release: Updater
     /** Swaps the menu for the download card: a meter, the size and time left, then install. */
     private fun startDownload() {
         sheet.dismiss()
+        @android.annotation.SuppressLint("InflateParams") // a dialog's content: it has no parent yet
         val root = android.view.LayoutInflater.from(act).inflate(R.layout.dialog_update, null)
         val d = androidx.activity.ComponentDialog(act, R.style.KickSheet)
         d.setContentView(root)

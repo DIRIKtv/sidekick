@@ -87,11 +87,24 @@ class GridAdapter(
         items.clear()
         items.addAll(list)
         if (cascade) cascadeAt = android.os.SystemClock.uptimeMillis()
+        @Suppress("NotifyDataSetChanged") // a whole new list (update() and swap() handle partial changes)
         notifyDataSetChanged()
         if (wasEmpty && list.isNotEmpty() && !cascade) revealList()
     }
 
     /** Swap in new contents of the same shape without the reveal animation (keeps focus in place). */
+    /**
+     * Swaps in a different list (another tab) as removals and insertions, so views outside this
+     * adapter (a header above it in a ConcatAdapter) aren't rebound and keep their focus.
+     */
+    fun swap(list: List<GridItem>) {
+        val old = items.size
+        items.clear()
+        notifyItemRangeRemoved(0, old)
+        items.addAll(list)
+        notifyItemRangeInserted(0, list.size)
+    }
+
     fun update(list: List<GridItem>) {
         if (list.size != items.size) return submit(list)
         items.clear()
