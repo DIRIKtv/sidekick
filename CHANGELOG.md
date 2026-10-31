@@ -3,6 +3,12 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.8.2 · October 31, 2026
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- The progress bar is back to its slim look when selected (the time bubble and seek previews stay)
+- Player messages, such as the sleep timer or quality you just picked, could be hidden behind the title card at the top; they now appear just below it
+
 ## 1.8.1 · October 31, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
