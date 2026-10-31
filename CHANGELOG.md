@@ -3,6 +3,18 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.8.1 · October 31, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Up next when a stream ends:** instead of a plain message, a full-screen card shows what to watch next: the channel they raided, one of your live followed channels, or a popular stream in the same category. It starts by itself after 10 seconds (any button stops it), or turn that off in Settings → Playback
+- **Seek previews:** scrubbing a past broadcast shows a picture of where you'll land, in a bubble above the progress bar. Turn it off in Settings → Playback
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Bolder progress bar:** it thickens when selected, and a bubble shows the time you'd jump to (or how far behind live)
+- **Header card:** the stream title, channel and avatar sit in one tidy card, with a green heart when you follow the channel
+- **One style for player messages:** Paused, quality changes, follows and seeking now all drop in at the top centre
+- **Friendlier errors:** plain-English explanations instead of error codes, with two clear choices such as Try again or Lower quality
+
 ## 1.8.0 · October 31, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
