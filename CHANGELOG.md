@@ -3,6 +3,24 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.7 · October 31, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Channel tabs:** Past broadcasts and Clips now sit right under Watch live and Follow. Move onto a tab to switch, and press OK to jump into it
+- **Current stream card:** while a channel is live, its first card is the live stream itself instead of the in-progress recording
+- **Sign in from the menu:** the account at the bottom of the side menu now says Sign in and can be selected to sign in, or to open your account's options
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **New loading animation:** a swirling ring replaces the old loader everywhere
+- **Logo on the phone sign-in page,** and a note on both sign-in screens that Sidekick is unofficial and not affiliated with Kick
+- **Smoother on Fire TV:** loading animations, the update download bar and poll bars no longer create garbage every frame, chat restyles in place, and screens no longer paint their background twice
+- **Accessibility:** QR codes are described for screen readers, decorative images are skipped, and the LIVE badge text is a little larger
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- Signing out didn't update the name at the bottom of the side menu until the app was reopened
+- The Watch live and Follow buttons had their top and bottom edges cut off when selected
+- The focus glow on a card could keep a closed screen in memory
+
 ## 1.7.6 · October 30, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
