@@ -3,6 +3,19 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.5 · October 30, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Put chat anywhere:** in the player, Chat → Customize layout now lets chat over the video go anywhere on screen, at any size (as small as a streamer's on-screen chat), with as much or as little dark backing as you like. Hold an arrow to move faster; a dashed outline shows the chat's edges while you arrange it
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Viewer count in the LIVE pill:** the count now sits beside LIVE at the bottom left, and the top of the player no longer repeats how long the stream has been live
+- **Readable see-through chat:** with little or no backing, messages get a soft shadow and the chat title bar steps away
+- Saving a chat layout also turns chat on
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- The Pause label sat too close to its button when the controls first opened
+
 ## 1.7.4 · October 30, 2026
 
 ### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
