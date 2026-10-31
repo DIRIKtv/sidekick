@@ -3,6 +3,18 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.7.6 · October 30, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Chat text size per layout:** Customize layout has a Text tool, so a small chat box can use smaller text and fit more messages. Each channel can keep its own size
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Clearer layout editor:** the tool you're using is highlighted in green, and Backing is now Transparency (right makes chat more see-through)
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- The play, rewind and forward buttons started slightly left and moved to the centre a moment later
+- The quality button was slightly wider than the others, with its icon off-centre
+
 ## 1.7.5 · October 30, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
