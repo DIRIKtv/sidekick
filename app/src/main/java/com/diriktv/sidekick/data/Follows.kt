@@ -15,7 +15,7 @@ object Follows {
     private var cached: List<Favorite> = emptyList()
     private var cachedAt = 0L
     /** The account's follows, saved between runs so follow state is right before the list loads. */
-    private val accountSlugs: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val accountSlugs: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     private lateinit var app: Context
 
     val signedIn get() = KickApi.authToken != null
