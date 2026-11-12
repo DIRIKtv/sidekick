@@ -3,6 +3,32 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.8.6 · November 11, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Report a problem:** if Sidekick closed unexpectedly, it offers once to report it. A QR code opens a bug report on your phone with the details filled in, and nothing is sent unless you submit it. Also in Settings → App
+- **Unpair phones:** Settings → App gives phone chat a new code, so phones that scanned the old one stop working
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Picks up after a dropped connection:** when your internet comes back, Home, Browse, Following and the player load again by themselves
+- **Clearer errors:** Search, Browse, categories and channel pages say what went wrong in plain words, with a Try again button
+- **Smarter playback:** if your TV can't play a quality, Sidekick steps down one quality and carries on. A live stream stuck loading for 15 seconds reconnects by itself
+- **Expired sign-in:** when Kick stops accepting your sign-in, the side menu and Settings offer Sign in again instead of your follows quietly vanishing
+- **Follows that don't go through:** if Kick doesn't take a follow, Sidekick tells you, keeps it on the TV and tries again later. Your follows also show correctly straight after opening the app
+- **Safer phone pages and updates:** phone sign-in and chat are harder to misuse from other devices on your network, phone chat codes expire after a week unused, sign-out clears everything kick.com stored, and updates are checked to come from Sidekick's GitHub and be signed by its developer
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- With chat beside the video, the player's buttons overlapped and the quality button was cut off on the left
+- A Home row that failed to load stayed as an empty title; offline, Home showed titles with nothing under them instead of saying it couldn't reach Kick
+- Browse stayed empty for the rest of the session after one failed load
+- Channel pages said "No past broadcasts" or "No clips yet" when they had actually failed to load
+- Switching streams quickly could show the previous channel's chat
+- Chat filled up with "reconnecting" lines during an outage
+- A brief 7TV hiccup turned a channel's 7TV emotes off until the app restarted
+- The player kept checking for updates and could start the next stream by itself after you'd left it
+- Raid pop-ups appeared inside the picture-in-picture window
+- On the phone chat page, words like "constructor" showed as broken images
+
 ## 1.8.5 · October 31, 2026
 
 ### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
