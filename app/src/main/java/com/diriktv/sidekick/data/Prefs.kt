@@ -78,6 +78,24 @@ class Prefs(context: Context) {
         get() = sp.getString("account_avatar", null)
         set(v) = sp.edit().putString("account_avatar", v).apply()
 
+    /** Kick turned the saved session down (401): the account needs signing in again. */
+    var sessionExpired: Boolean
+        get() = sp.getBoolean("session_expired", false)
+        set(v) = sp.edit().putBoolean("session_expired", v).apply()
+
+    /** Lowercase slugs the Kick account followed at the last successful check, so follow state is right at start-up. */
+    var accountFollows: Set<String>
+        get() = sp.getStringSet("account_follows", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("account_follows", v).apply()
+
+    /** Follows and unfollows Kick didn't accept yet (lowercase slug -> follow), retried later. */
+    var pendingFollows: Map<String, Boolean>
+        get() = runCatching {
+            val o = JSONObject(sp.getString("pending_follows", "{}") ?: "{}")
+            o.keys().asSequence().associateWith { o.optBoolean(it) }
+        }.getOrDefault(emptyMap())
+        set(v) = sp.edit().putString("pending_follows", JSONObject(v as Map<*, *>).toString()).apply()
+
     /** Hide messages from chat bots (bot badge or a well-known bot name). */
     var chatHideBots: Boolean
         get() = sp.getBoolean("chat_hide_bots", false)
@@ -270,10 +288,13 @@ class Prefs(context: Context) {
 
     var favorites: List<Favorite>
         get() {
-            val arr = JSONArray(sp.getString("favorites", "[]"))
-            return (0 until arr.length()).map {
-                val o = arr.getJSONObject(it)
-                Favorite(o.getString("slug"), o.optString("username"), o.optStringOrNull("avatar"))
+            // A damaged value must never take Following (or every follow check) down with it:
+            // unreadable entries are skipped, and an unreadable list reads as empty.
+            val arr = runCatching { JSONArray(sp.getString("favorites", "[]")) }.getOrNull() ?: return emptyList()
+            return (0 until arr.length()).mapNotNull {
+                val o = arr.optJSONObject(it) ?: return@mapNotNull null
+                val slug = o.optStringOrNull("slug") ?: return@mapNotNull null
+                Favorite(slug, o.optString("username", slug), o.optStringOrNull("avatar"))
             }
         }
         set(list) {
@@ -305,7 +326,8 @@ class Prefs(context: Context) {
     var history: List<HistoryEntry>
         get() = runCatching {
             val arr = JSONArray(sp.getString("history", "[]"))
-            (0 until arr.length()).map { HistoryEntry.fromJson(arr.getJSONObject(it)) }
+            // One damaged entry is skipped rather than emptying the whole history.
+            (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { runCatching { HistoryEntry.fromJson(it) }.getOrNull() } }
         }.getOrDefault(emptyList())
         set(list) {
             val arr = JSONArray()

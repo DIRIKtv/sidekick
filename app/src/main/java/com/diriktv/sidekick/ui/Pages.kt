@@ -47,9 +47,12 @@ abstract class GridPage(
         list.itemAnimator = null
     }
 
+    protected val errorRetry = ErrorRetry(status)
+
     open fun onNearEnd() {}
 
     override fun focusContent(): Boolean {
+        if (errorRetry.focusable?.requestFocus() == true) return true
         val lm = list.layoutManager as CenterGridLayoutManager
         val first = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
         for (i in first until adapter.itemCount) {
@@ -71,10 +74,12 @@ class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4
         progress.setVisible(adapter.itemCount == 0)
         job = act.lifecycleScope.launch {
             val favs = Follows.all(act)
+            val expiredNote = "Your Kick sign-in has expired, so your account's follows can't load.\nSign in again under Settings → Account."
             if (favs.isEmpty()) {
                 progress.setVisible(false)
                 adapter.submit(emptyList())
-                status.text = "Nothing followed yet.\n\nSign in under Settings to bring your Kick follows,\nor press ♥ in the player or on a channel page."
+                status.text = if (Follows.sessionExpired) expiredNote
+                else "Nothing followed yet.\n\nSign in under Settings to bring your Kick follows,\nor press ♥ in the player or on a channel page."
                 return@launch
             }
             val live = Follows.liveNow(act)
@@ -82,6 +87,8 @@ class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4
             val offline = favs.filter { it.slug.lowercase() !in liveSlugs }
             fun build(info: Map<String, com.diriktv.sidekick.data.ChannelInfo>): List<GridItem> {
                 val items = mutableListOf<GridItem>()
+                // Only this TV's favorites are showing: say why the account's are missing.
+                if (Follows.sessionExpired) items += GridItem.Header("Kick sign-in expired • sign in again under Settings → Account to see all your follows")
                 if (live.isNotEmpty()) {
                     items += GridItem.Header("Live now")
                     items += live.map { GridItem.Stream(it) }
@@ -144,7 +151,7 @@ class BrowsePage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 7, c
     override fun onNearEnd() {
         if (busy || done) return
         busy = true
-        progress.setVisible(adapter.itemCount == 0)
+        progress.setVisible(adapter.itemCount == 0 && !errorRetry.showing)
         act.lifecycleScope.launch {
             try {
                 val res = KickApi.categories(page, 36)
@@ -154,14 +161,21 @@ class BrowsePage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 7, c
                 page++
                 done = res.next == null
                 status.text = ""
+                if (errorRetry.hide()) list.post { focusContent() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (adapter.itemCount == 0) status.text = "Couldn't load categories.\n${e.message}"
-                done = true
+                // Not marked done: showing the page again (or the connection coming back) retries.
+                if (adapter.itemCount == 0) errorRetry.show("Couldn't load categories", e) { onNearEnd() }
             } finally {
                 busy = false
                 progress.setVisible(false)
             }
         }
+    }
+
+    fun onReconnected() {
+        if (adapter.itemCount == 0) onNearEnd()
     }
 }
 
@@ -190,6 +204,7 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
         onClick = { open(it) },
         onLongClick = { if (it !is GridItem.Query) { remember(); Nav.onCardLongClick(act, it) } },
     )
+    private val errorRetry = ErrorRetry(status)
     private var job: Job? = null
     private var popularJob: Job? = null
     private var popular: List<com.diriktv.sidekick.data.LiveStream> = emptyList()
@@ -291,7 +306,11 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
         if (now.isNotEmpty()) setQuery(now.dropLast(1), 450)
     }
 
+    private fun focusResults(): Boolean =
+        (0 until list.childCount).map { list.getChildAt(it) }.firstOrNull { it.isFocusable }?.requestFocus() ?: false
+
     private fun setQuery(q: String, debounce: Long) {
+        errorRetry.hide()
         query.setText(q)
         query.setSelection(q.length)
         search(q, debounce)
@@ -318,6 +337,7 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
     private fun showStart() {
         job?.cancel()
         progress.setVisible(false)
+        errorRetry.hide()
         val items = mutableListOf<GridItem>()
         val typed = query.text.toString().trim()
         val recent = prefs.searchHistory.filter { it.startsWith(typed, ignoreCase = true) }
@@ -351,8 +371,11 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
         }
         job = act.lifecycleScope.launch {
             delay(debounce)
-            progress.setVisible(adapter.itemCount == 0)
-            status.text = ""
+            // Retrying from the error's button: it keeps its "Trying again…" line meanwhile.
+            if (!errorRetry.showing) {
+                progress.setVisible(adapter.itemCount == 0)
+                status.text = ""
+            }
             try {
                 val found = KickApi.search(q.trim())
                 // Live channels as stream cards, with what they're streaming and how many are watching.
@@ -390,11 +413,12 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
                 }
                 adapter.submit(items)
                 status.text = if (items.isEmpty()) "Nothing on Kick matches “${q.trim()}”" else ""
+                if (errorRetry.hide()) list.post { if (!focusResults()) focusContent() }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 adapter.submit(emptyList())
-                status.text = "Search failed.\n${e.message}"
+                errorRetry.show("Couldn't search Kick", e) { search(q, 0) }
             } finally {
                 progress.setVisible(false)
             }
@@ -491,7 +515,13 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             listOf(
                 Setting(
                     title = { if (Follows.signedIn) prefs.accountName ?: "Signed in" else "Sign in to Kick" },
-                    summary = { if (Follows.signedIn) "Signed in to Kick • your followed channels show up in Following and on Home" else "Bring your followed channels to the TV" },
+                    summary = {
+                        when {
+                            Follows.sessionExpired -> "Your Kick sign-in has expired • select to sign in again"
+                            Follows.signedIn -> "Signed in to Kick • your followed channels show up in Following and on Home"
+                            else -> "Bring your followed channels to the TV"
+                        }
+                    },
                     icon = R.drawable.ic_account,
                     value = { null },
                     avatar = { if (Follows.signedIn) prefs.accountAvatar else null },
@@ -727,6 +757,23 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         prefs.updateSchedule = options[it]
                     }
                 },
+                Setting("Report a problem", { "Opens a bug report on your phone, with this TV's details (and the last crash, if there was one) filled in" },
+                    R.drawable.ic_info, { null }) {
+                    val crash = com.diriktv.sidekick.data.CrashReports.pending(act)
+                    QrDialog.show(act, "Report a problem",
+                        "Scan with your phone to open a bug report on GitHub. Sidekick's version and this TV's model" +
+                            (if (crash != null) ", plus the details of the last crash," else "") +
+                            " are filled in for you. Nothing is sent until you submit it.",
+                        com.diriktv.sidekick.data.CrashReports.issueUrl(crash), "github.com/${com.diriktv.sidekick.data.Updater.REPO}/issues")
+                },
+                Setting("Unpair phones", { "Phones that scanned the chat code can no longer read or send chat; the next scan gets a new code" },
+                    R.drawable.ic_phone, { null }) {
+                    OptionSheet.confirm(act, "Unpair phones?", "Every phone that scanned the chat code stops working until it scans the new one.",
+                        "Unpair phones", R.drawable.ic_phone) {
+                        com.diriktv.sidekick.data.PhoneChat.unpairAll(act)
+                        android.widget.Toast.makeText(act, "Phones unpaired", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
             )
         },
     )
@@ -926,7 +973,9 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                 if (release != null) UpdateFlow(act, release).show()
                 else android.widget.Toast.makeText(act, "You're on the latest version.", android.widget.Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                android.widget.Toast.makeText(act, "Couldn't check for updates: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                val why = if (com.diriktv.sidekick.data.KickErrors.isOffline(e)) "Check your internet connection, then try again."
+                else "GitHub didn't answer. Try again in a few minutes."
+                android.widget.Toast.makeText(act, "Couldn't check for updates. $why", android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -955,8 +1004,13 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             act.startActivity(android.content.Intent(act, LoginActivity::class.java))
             return
         }
-        sheet.show(OptionSheet.Page(prefs.accountName ?: "Account", eyebrow = "Kick account") {
-            listOf(
+        sheet.show(OptionSheet.Page(prefs.accountName ?: "Account", eyebrow = "Kick account",
+            subtitle = if (Follows.sessionExpired) "Kick no longer accepts this TV's sign-in. Sign in again to bring back your follows." else null) {
+            listOfNotNull(
+                if (Follows.sessionExpired) OptionSheet.Item("Sign in again", icon = R.drawable.ic_account) {
+                    it.dismiss()
+                    act.startActivity(android.content.Intent(act, LoginActivity::class.java))
+                } else null,
                 OptionSheet.Item("Refresh followed channels", icon = R.drawable.ic_refresh) {
                     Follows.invalidate(); onChanged(); it.dismiss()
                 },

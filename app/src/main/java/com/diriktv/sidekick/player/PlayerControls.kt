@@ -28,6 +28,7 @@ import java.util.Locale
 internal class PlayerControls(private val act: PlayerActivity) {
     companion object {
         private const val HIDE_DELAY_MS = 5000L
+        private const val MAX_SQUEEZE = 3
     }
 
     private val player get() = act.player
@@ -350,9 +351,26 @@ internal class PlayerControls(private val act: PlayerActivity) {
     private fun keepTransportClear(transport: View) {
         val left = btnLive.parent as View
         val actions = btnQuality.parent as View
-        val gap = act.dp(16)
+        val row = transport.parent as View
+        val gap = act.dp(14)
+        // A change is on its way: judge the row once it has been laid out with it.
+        if (squeezePending || row.width == 0) return
         val from = left.right + gap
         val to = actions.left - gap
+        val spare = to - from - transport.width
+        when {
+            // Not even the gap between the groups fits the play buttons (chat beside the video on
+            // a 960dp-wide TV, with the viewer count in the LIVE pill): tuck the least needed thing
+            // away and lay out again, rather than letting the buttons overlap.
+            spare < 0 && squeeze < MAX_SQUEEZE -> squeeze++
+            // Room again for the last thing tucked away (chat closed, a shorter label): bring it back.
+            squeeze > 0 && spare >= roomFreedBy(squeeze) + act.dp(2) -> squeeze--
+            else -> null
+        }?.let {
+            squeezePending = true
+            transport.post { applySqueeze() }
+            return
+        }
         val half = transport.width / 2f
         val centre = (transport.left + transport.right) / 2f
         val target = when {
@@ -361,6 +379,38 @@ internal class PlayerControls(private val act: PlayerActivity) {
         }
         val dx = target - centre
         if (transport.translationX != dx) transport.translationX = dx
+    }
+
+    /**
+     * How much is tucked away because the row is too narrow: 1 the viewer count in the LIVE pill,
+     * 2 also the channel button (also in ☰, and on a held OK), 3 also the phone button.
+     */
+    private var squeeze = 0
+    private var squeezePending = false
+    /**
+     * The room [level] takes up when shown, worked out from its current size even while it's
+     * hidden (the buttons' sizes change with compact mode, so a figure from earlier can be stale).
+     */
+    private fun roomFreedBy(level: Int): Int {
+        fun room(v: View): Int {
+            val lp = v.layoutParams as ViewGroup.MarginLayoutParams
+            val w = if (lp.width > 0) lp.width else v.width
+            return w + lp.marginStart + lp.marginEnd
+        }
+        return when (level) {
+            1 -> room(viewerCount) + room(liveSep)
+            2 -> room(btnProfile)
+            else -> room(btnPhone)
+        }.takeIf { it > 0 } ?: act.dp(60)
+    }
+
+    private fun applySqueeze() {
+        squeezePending = false
+        val profile = squeeze < 2
+        if (!profile && btnProfile.hasFocus()) btnPlay.requestFocus()
+        btnProfile.setVisible(profile)
+        updateMeta()
+        updateMode()
     }
 
     /** The thin line along the bottom: past broadcasts and rewound live, controls hidden. */
@@ -425,7 +475,9 @@ internal class PlayerControls(private val act: PlayerActivity) {
         val isVod = act.mode == PlayerActivity.Mode.VOD
         btnLive.setVisible(!isVod)
         btnChat.setVisible(!isVod || act.chat.canReplay)
-        btnPhone.setVisible(!isVod)
+        val phone = !isVod && squeeze < 3
+        if (!phone && btnPhone.hasFocus()) btnSettings.requestFocus()
+        btnPhone.setVisible(phone)
         updateFollowButton()
         updateProgress()
     }
@@ -465,8 +517,8 @@ internal class PlayerControls(private val act: PlayerActivity) {
     fun updateMeta() {
         val c = act.channel
         val live = act.mode != PlayerActivity.Mode.VOD && c != null
-        viewerCount.setVisible(live)
-        liveSep.setVisible(live)
+        viewerCount.setVisible(live && squeeze < 1)
+        liveSep.setVisible(live && squeeze < 1)
         if (c != null && live) viewerCount.setValue(c.liveViewers)
         val meta = if (act.mode == PlayerActivity.Mode.VOD) {
             listOfNotNull(if (act.isClip) "Clip" else "Past broadcast", c?.let { "${Fmt.count(it.followers)} followers" })

@@ -111,6 +111,15 @@ class LoginActivity : FragmentActivity() {
         web.isFocusable = true
         web.isFocusableInTouchMode = true
         web.webViewClient = object : WebViewClient() {
+            // The page only ever goes to kick.com (and the security checks it embeds), so a link
+            // can't lead it somewhere the typed login would then be filled into.
+            override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean =
+                request.isForMainFrame && !isAllowedHost(request.url)
+
+            @Deprecated("Android 6 calls this one instead")
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = !isAllowedHost(android.net.Uri.parse(url))
+
             override fun onPageFinished(view: WebView, url: String) {
                 if (autoOpened) return
                 autoOpened = true
@@ -188,8 +197,30 @@ class LoginActivity : FragmentActivity() {
         if (formReady) submitPending() else setStatus("working", "Got it — waiting for kick.com to finish loading…")
     }
 
+    /** kick.com itself, where a login may be typed in. */
+    private fun onKick(url: String?): Boolean {
+        val u = url?.let { android.net.Uri.parse(it) } ?: return false
+        val host = u.host?.lowercase() ?: return false
+        return u.scheme == "https" && (host == "kick.com" || host.endsWith(".kick.com"))
+    }
+
+    /** Where the sign-in page may navigate: kick.com, plus the bot checks it can send you through. */
+    private fun isAllowedHost(uri: android.net.Uri): Boolean {
+        if (uri.scheme != "https") return false
+        val host = uri.host?.lowercase() ?: return false
+        fun under(domain: String) = host == domain || host.endsWith(".$domain")
+        return under("kick.com") || under("challenges.cloudflare.com") || under("hcaptcha.com") ||
+            under("recaptcha.net") || (under("google.com") && uri.path.orEmpty().startsWith("/recaptcha"))
+    }
+
     private fun submitPending() {
         val (user, password) = pendingLogin ?: return
+        // Never type the login into anything but kick.com.
+        if (!onKick(web.url)) {
+            setStatus("error", "The TV isn't on kick.com's sign-in page. Press ☰ to check it, then try again.")
+            pendingLogin = null
+            return
+        }
         pendingLogin = null
         workingSince = System.currentTimeMillis()
         setStatus("working", "Signing in as $user…")
@@ -209,6 +240,10 @@ class LoginActivity : FragmentActivity() {
     }
 
     private fun onPhoneCode(code: String) {
+        if (!onKick(web.url)) {
+            setStatus("error", "The TV isn't on kick.com right now. Press ☰ to check it, then try again.")
+            return
+        }
         workingSince = System.currentTimeMillis()
         setStatus("working", "Checking the code…")
         web.evaluateJavascript(

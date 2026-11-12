@@ -4,17 +4,15 @@ import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.ServerSocket
 import java.net.Socket
-import java.net.SocketException
 import java.security.SecureRandom
-import java.util.concurrent.Executors
 
 /**
  * Chat from your phone: a small page on the home network that shows the chat of whatever the TV
  * is playing and sends what you type to it, as your Kick account. The page follows the TV, so
  * one scan keeps working as you change streams. Its key is kept between runs, so a phone that
- * saved the page can come straight back.
+ * saved the page can come straight back, until it goes unused for a week, turns 30 days old, or
+ * phones are unpaired in Settings. The server only runs while a player is open.
  */
 @android.annotation.SuppressLint("StaticFieldLeak") // holds only the application context
 object PhoneChat {
@@ -58,14 +56,26 @@ object PhoneChat {
     private var seq = 0L
     private val seqOf = HashMap<String, Long>()
 
-    private var socket: ServerSocket? = null
-    private val pool = Executors.newCachedThreadPool()
-    private var secret = ""
-    private var port = 0
+    private val server = LocalHttp.Server("phone-chat") { handle(it) }
+    @Volatile private var secret = ""
+    /** Messages from phones: a fast typist, not a script. */
+    private val sends = LocalHttp.RateLimit(max = 20)
+
+    /** A paired phone keeps working while it's used at least this often… */
+    private const val IDLE_EXPIRY_MS = 7 * 24 * 60 * 60_000L
+    /** …and for no longer than this in all, after which the TV shows a new code. */
+    private const val MAX_AGE_MS = 30 * 24 * 60 * 60_000L
+    private const val KEY = "phone_chat_key"
+    private const val KEY_CREATED = "phone_chat_key_created"
+    private const val KEY_USED = "phone_chat_key_used"
+    @Volatile private var lastUseSaved = 0L
+
+    /** Open players; the server only runs while there's one (see [attach]). */
+    private var players = 0
 
     /** Called for each message shown on the TV, so the phone sees the same chat. */
     fun record(m: ChatMessage) {
-        if (socket == null || m.isSystem) return
+        if (!server.running || m.isSystem) return
         synchronized(recent) {
             recent.addLast(m)
             seqOf[m.id] = ++seq
@@ -73,33 +83,78 @@ object PhoneChat {
         }
     }
 
+    private fun prefs(context: Context) = context.getSharedPreferences("sidekick", Context.MODE_PRIVATE)
+
+    /** The saved key while it's still good, else null (and it's forgotten). */
+    private fun validKey(context: Context): String? {
+        val sp = prefs(context)
+        val key = sp.getString(KEY, null) ?: return null
+        val now = System.currentTimeMillis()
+        val created = sp.getLong(KEY_CREATED, 0L)
+        val used = maxOf(sp.getLong(KEY_USED, 0L), created)
+        if (created == 0L || now - created > MAX_AGE_MS || now - used > IDLE_EXPIRY_MS) {
+            sp.edit().remove(KEY).remove(KEY_CREATED).remove(KEY_USED).apply()
+            return null
+        }
+        return key
+    }
+
+    private fun newKey(context: Context): String {
+        val key = ByteArray(16).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        val now = System.currentTimeMillis()
+        prefs(context).edit().putString(KEY, key).putLong(KEY_CREATED, now).putLong(KEY_USED, now).apply()
+        return key
+    }
+
     /** Starts the server if needed and returns the address for the QR code, or null without a network. */
     fun start(context: Context): String? {
         app = context.applicationContext
-        val sp = context.getSharedPreferences("sidekick", Context.MODE_PRIVATE)
-        if (socket == null) {
-            secret = sp.getString("phone_chat_key", null) ?: ByteArray(12).also { SecureRandom().nextBytes(it) }
-                .joinToString("") { "%02x".format(it) }.also { sp.edit().putString("phone_chat_key", it).apply() }
-            for (p in listOf(8790, 8791, 8792, 0)) {
-                socket = runCatching { ServerSocket(p) }.getOrNull() ?: continue
-                port = socket!!.localPort
-                break
-            }
-            val server = socket ?: return null
-            pool.execute {
-                Thread.currentThread().name = "phone-chat"
-                while (!server.isClosed) {
-                    val client = try { server.accept() } catch (e: SocketException) { break }
-                    pool.execute { runCatching { handle(client) } }
-                }
-            }
+        if (!server.running || secret.isEmpty()) {
+            secret = validKey(context) ?: newKey(context)
+            if (!server.start(listOf(8790, 8791, 8792, 0))) return null
         }
-        return LocalHttp.lanAddress()?.let { "http://$it:$port/?k=$secret" }
+        return LocalHttp.lanAddress()?.let { "http://$it:${server.port}/?k=$secret" }
     }
 
-    private fun handle(client: Socket) = client.use { s ->
+    /**
+     * A player opened. A phone paired earlier (and not expired) can reconnect straight away, so
+     * the server comes back up; it stops when the last player closes ([detach]).
+     */
+    fun attach(context: Context) {
+        players++
+        if (!server.running && validKey(context) != null) start(context)
+    }
+
+    fun detach() {
+        players = (players - 1).coerceAtLeast(0)
+        if (players == 0) stop()
+    }
+
+    private fun stop() {
+        server.stop()
+        target = null
+        synchronized(recent) { recent.clear(); seqOf.clear() }
+        emoteCache.clear()
+    }
+
+    /** Settings → Unpair phones: every saved phone page stops working; the next scan gets a new key. */
+    fun unpairAll(context: Context) {
+        prefs(context).edit().remove(KEY).remove(KEY_CREATED).remove(KEY_USED).apply()
+        secret = ""
+        stop()
+    }
+
+    private fun noteUse() {
+        val now = System.currentTimeMillis()
+        if (now - lastUseSaved < 60 * 60_000L) return
+        lastUseSaved = now
+        app?.let { prefs(it).edit().putLong(KEY_USED, now).apply() }
+    }
+
+    private fun handle(s: Socket) {
         val req = LocalHttp.read(s) ?: return
-        if (req.query["k"] != secret) return LocalHttp.respond(s, 403, "text/plain", "This link has expired. Scan the QR code on your TV again.")
+        if (!LocalHttp.keyMatches(req.query["k"], secret)) return LocalHttp.respond(s, 403, "text/plain", "This link has expired. Scan the QR code on your TV again.")
+        noteUse()
         when {
             req.method == "GET" && req.path == "/" -> LocalHttp.respond(s, 200, "text/html; charset=utf-8", PAGE)
             req.method == "GET" && req.path == "/badge" -> {
@@ -113,6 +168,7 @@ object PhoneChat {
                 val text = runCatching { JSONObject(req.body).optString("text") }.getOrNull().orEmpty().trim().take(500)
                 val t = target
                 val error = when {
+                    !sends.allow() -> "You're sending messages too fast. Wait a moment."
                     text.isEmpty() -> "Type a message first."
                     t == null -> "Nothing is playing on your TV right now."
                     KickApi.authToken == null -> "Sign in to Kick on your TV first (Settings → Account)."
@@ -136,7 +192,9 @@ object PhoneChat {
                 val n = seqOf[m.id] ?: continue
                 if (n <= after && !reset) continue
                 last = maxOf(last, n)
-                messages.put(JSONObject().put("u", m.username).put("c", m.color).put("t", m.content).put("b", badges(m, t)))
+                // The colour lands in a style attribute on the phone: only a plain #rrggbb gets through.
+                val color = m.color?.takeIf { COLOR.matches(it) }
+                messages.put(JSONObject().put("u", m.username).put("c", color).put("t", m.content).put("b", badges(m, t)))
             }
         }
         return JSONObject()
@@ -176,9 +234,12 @@ object PhoneChat {
         return JSONObject().put("kick", kick.getJSONArray("list")).put("seventv", JSONObject(sevenTv as Map<*, *>))
     }
 
+    private val COLOR = Regex("^#[0-9A-Fa-f]{6}$")
+
     private val PAGE = """
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
 <title>Sidekick chat</title>
 <style>
 :root{--g:#53FC18;--bg:#0B0E0F;--s:#16191C;--s2:#24272C;--t:#EFEFF1;--t2:#A9ADB4}
@@ -217,7 +278,10 @@ function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&
 function render(t){return t.split(/(\[emote:\d+:[^\]]*\])/).map(function(part){
  var m=part.match(/^\[emote:(\d+):([^\]]*)\]$/);
  if(m)return '<img alt="'+esc(m[2])+'" src="https://files.kick.com/emotes/'+m[1]+'/fullsize">';
- return part.split(/(\s+)/).map(function(w){return stv[w]?'<img alt="'+esc(w)+'" src="'+esc(stv[w])+'">':esc(w)}).join('')}).join('')}
+ return part.split(/(\s+)/).map(function(w){return own(stv,w)?'<img alt="'+esc(w)+'" src="'+esc(stv[w])+'">':esc(w)}).join('')}).join('')}
+// Only the set's own names: "constructor" or "toString" in chat aren't emotes.
+function own(o,k){return Object.prototype.hasOwnProperty.call(o,k)&&typeof o[k]==='string'}
+function color(c){return /^#[0-9A-Fa-f]{6}$/.test(c||'')?c:'#53FC18'}
 function badges(b){return (b||[]).map(function(u){return '<img class="bd" alt="" src="'+esc(u)+'">'}).join('')}
 function loadEmotes(){fetch('/emotes?k='+k).then(function(r){return r.json()}).then(function(e){stv=e.seventv||{};kick=e.kick||[];bar()}).catch(function(){})}
 // The quick bar: the channel's emotes, Kick's global ones and 7TV. Tapping one puts :name: in the
@@ -231,10 +295,10 @@ function bar(){var q=g('qe');q.innerHTML='';var sets=[['channel','Channel'],['gl
   b.innerHTML='<img alt="'+esc(e.n)+'" src="'+esc(e.u)+'">';b.onclick=function(){if(!e.stv)picked[e.n]='[emote:'+e.id+':'+e.n+']';
    var t=g('t'),word=e.stv?e.n:':'+e.n+':';t.value=(t.value&&!/\s$/.test(t.value)?t.value+' ':t.value)+word+' ';t.focus()};q.appendChild(b)});
  q.classList.toggle('hide',!q.children.length)}
-function encode(t){return t.replace(/:([A-Za-z0-9_]+):/g,function(all,n){return picked[n]||all})}
+function encode(t){return t.replace(/:([A-Za-z0-9_]+):/g,function(all,n){return own(picked,n)?picked[n]:all})}
 function note(text,err){var n=g('note');n.textContent=text||'';n.classList.toggle('hide',!text);n.classList.toggle('err',!!err)}
 function add(m){var log=g('log'),stick=log.scrollHeight-log.scrollTop-log.clientHeight<60,d=document.createElement('div');d.className='m';
- d.innerHTML=badges(m.b)+'<b style="color:'+esc(m.c||'#53FC18')+'">'+esc(m.u)+'</b>: '+render(m.t);log.appendChild(d);
+ d.innerHTML=badges(m.b)+'<b style="color:'+color(m.c)+'">'+esc(m.u)+'</b>: '+render(m.t);log.appendChild(d);
  while(log.children.length>150)log.removeChild(log.firstChild);if(stick)log.scrollTop=log.scrollHeight}
 function poll(){fetch('/state?k='+k+'&after='+last).then(function(r){return r.json()}).then(function(s){
  var name=s.channel&&s.channel.name;

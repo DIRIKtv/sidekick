@@ -88,24 +88,35 @@ class ChannelActivity : FragmentActivity() {
         if (videos.isNotEmpty()) submitVideos()
     }
 
+    private val errorRetry by lazy { ErrorRetry(findViewById(R.id.status)) }
+    /** Why the past broadcasts or clips couldn't load (null when they did, even if there are none). */
+    private var videosError: Throwable? = null
+    private var clipsError: Throwable? = null
+
     private fun load() {
         val slug = intent.getStringExtra(EXTRA_SLUG) ?: return finish()
+        findViewById<View>(R.id.progress).setVisible(!errorRetry.showing)
         lifecycleScope.launch {
-            val vids = async { runCatching { KickApi.videos(slug) }.getOrDefault(emptyList()) }
-            val clipsJob = async { runCatching { KickApi.clips(slug, time = "all").items }.getOrDefault(emptyList()) }
+            val vids = async { runCatching { KickApi.videos(slug) } }
+            val clipsJob = async { runCatching { KickApi.clips(slug, time = "all").items } }
             try {
                 channel = KickApi.channel(slug)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 findViewById<View>(R.id.progress).setVisible(false)
-                android.widget.Toast.makeText(this@ChannelActivity, "Couldn't load channel: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
-                finish()
+                // Stay on the page with a way to try again, rather than closing with a cryptic toast.
+                errorRetry.show("Couldn't load this channel", e) { load() }
+                errorRetry.focusable?.requestFocus()
                 return@launch
             }
+            findViewById<View>(R.id.status).setVisible(false)
+            errorRetry.hide()
             findViewById<ImageView>(R.id.bannerBg).loadThumb(channel?.banner)
             headerAdapter.notifyItemInserted(0)
-            videos = vids.await()
-            clips = clipsJob.await()
-            if (videos.isEmpty() && clips.isNotEmpty()) tab = 1
+            vids.await().let { r -> videos = r.getOrDefault(emptyList()); videosError = r.exceptionOrNull() }
+            clipsJob.await().let { r -> clips = r.getOrDefault(emptyList()); clipsError = r.exceptionOrNull() }
+            if (videos.isEmpty() && videosError == null && clips.isNotEmpty()) tab = 1
             loaded = true
             submitVideos()
             findViewById<View>(R.id.progress).setVisible(false)
@@ -143,9 +154,43 @@ class ChannelActivity : FragmentActivity() {
     private fun showTabs() {
         val h = header ?: return
         tabViews().forEachIndexed { i, t -> t.isActivated = i == tab }
+        val error = if (tab == 0) videosError else clipsError
         h.findViewById<TextView>(R.id.tabEmpty).apply {
-            text = if (tab == 0) "No past broadcasts" else "No clips yet"
+            // "Empty" and "couldn't load" are different things: a failed list says so, and OK retries it.
+            text = when {
+                error != null -> "Couldn't load ${if (tab == 0) "past broadcasts" else "clips"}. ${com.diriktv.sidekick.data.KickErrors.describe(error)}  Press OK to try again."
+                tab == 0 -> "No past broadcasts"
+                else -> "No clips yet"
+            }
             setVisible(loaded && vodAdapter.items.isEmpty())
+            isFocusable = error != null
+            setBackgroundResource(if (error != null) R.drawable.bg_pill else 0)
+            val pad = if (error != null) dp(14) else 0
+            setPadding(pad, if (error != null) dp(8) else 0, pad, if (error != null) dp(8) else 0)
+            setOnClickListener(if (error != null) View.OnClickListener { retryTab() } else null)
+        }
+    }
+
+    /** Loads the open tab's list again after it failed. */
+    private fun retryTab() {
+        val c = channel ?: return
+        val which = tab
+        header?.findViewById<TextView>(R.id.tabEmpty)?.text = "Trying again…"
+        lifecycleScope.launch {
+            if (which == 0) {
+                val r = runCatching { KickApi.videos(c.slug) }
+                videos = r.getOrDefault(emptyList()); videosError = r.exceptionOrNull()
+            } else {
+                val r = runCatching { KickApi.clips(c.slug, time = "all").items }
+                clips = r.getOrDefault(emptyList()); clipsError = r.exceptionOrNull()
+            }
+            if (tab != which) return@launch
+            val hadFocus = header?.findViewById<View>(R.id.tabEmpty)?.isFocused == true
+            submitVideos(switched = true)
+            if (hadFocus) list.post {
+                list.layoutManager?.findViewByPosition(headerAdapter.itemCount)?.requestFocus()
+                    ?: tabViews().getOrNull(tab)?.requestFocus()
+            }
         }
     }
 
@@ -173,13 +218,20 @@ class ChannelActivity : FragmentActivity() {
             fav.setCompoundDrawablesRelativeWithIntrinsicBounds(if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline, 0, 0, 0)
         }
         fun toggle() = lifecycleScope.launch {
-            if (Follows.toggle(this@ChannelActivity, c.slug, c.username, c.avatar)) Burst.at(fav)
+            val result = Follows.toggle(this@ChannelActivity, c.slug, c.username, c.avatar)
+            if (result.following) Burst.at(fav)
             updateFav()
+            result.accountProblem?.let { android.widget.Toast.makeText(this@ChannelActivity, it, android.widget.Toast.LENGTH_LONG).show() }
         }
         updateFav()
         fav.focusZoom(1.05f)
         // OK on a tab goes down into what it shows.
-        tabViews().forEach { t -> t.setOnClickListener { list.layoutManager?.findViewByPosition(headerAdapter.itemCount)?.requestFocus() } }
+        tabViews().forEach { t ->
+            t.setOnClickListener {
+                list.layoutManager?.findViewByPosition(headerAdapter.itemCount)?.requestFocus()
+                    ?: v.findViewById<View>(R.id.tabEmpty).takeIf { it.isFocusable && it.visibility == View.VISIBLE }?.requestFocus()
+            }
+        }
         showTabs()
         fav.setOnClickListener {
             if (Follows.isFollowing(this, c.slug)) {

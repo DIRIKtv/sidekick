@@ -68,6 +68,8 @@ class PlayerActivity : FragmentActivity() {
         internal const val LIVE_EDGE_MS = 20_000L
         /** Live pauses longer than this resume from the recording instead of the (short) live window. */
         private const val LIVE_PAUSE_LIMIT_MS = 25_000L
+        /** Live playback buffering this long with no error is treated as stuck and reloaded. */
+        private const val STALL_MS = 15_000L
 
         /** The player on screen or in picture-in-picture; opening another one replaces it. */
         private var current: WeakReference<PlayerActivity>? = null
@@ -142,6 +144,23 @@ class PlayerActivity : FragmentActivity() {
             ui.postDelayed(this, 500)
         }
     }
+    /** The pending automatic retry after a playback error (cancelled when switching streams). */
+    private val retryRunnable = Runnable { retry() }
+    /** Raid set to "go automatically": the pending jump to the raided channel. */
+    private var raidJump: Runnable? = null
+    /** Times the quality was lowered for this stream because the TV couldn't decode it. */
+    private var decoderStepDowns = 0
+    /** When live playback started buffering without an error (0 when it isn't). */
+    private var stalledSince = 0L
+    /** The connection came back while playback had failed: try again straight away. */
+    private val reconnected: () -> Unit = {
+        if (!isFinishing && errorView.visibility == View.VISIBLE && retryAfterReconnect) {
+            retries = 0
+            retry()
+        }
+    }
+    /** The error on screen is one that coming back online could fix. */
+    private var retryAfterReconnect = false
 
     // region lifecycle
 
@@ -162,9 +181,12 @@ class PlayerActivity : FragmentActivity() {
         chat = ChatController(this)
 
         if (!readIntent(intent)) return finish()
+        com.diriktv.sidekick.data.PhoneChat.attach(this)
+        phoneAttached = true
         begin()
-        ui.post(ticker)
     }
+
+    private var phoneAttached = false
 
     /**
      * The player has its own task (single instance), so every "watch" comes here while it exists.
@@ -180,6 +202,18 @@ class PlayerActivity : FragmentActivity() {
         if (!readIntent(intent)) return
         if (previous == (slug to vodUrl) && (player.playbackState != Player.STATE_IDLE || liveLoad?.isActive == true)) return
         setIntent(intent)
+        // Anything still scheduled for the previous stream mustn't touch the new one.
+        ui.removeCallbacks(retryRunnable)
+        raidJump?.let { ui.removeCallbacks(it) }
+        raidJump = null
+        stalledSince = 0
+        if (decoderStepDowns > 0) {
+            // A lower quality forced by the last stream's decoding trouble doesn't carry over.
+            decoderStepDowns = 0
+            qualityHeight = prefs.preferredQuality
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE).clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
+        }
         endCard.hide()
         captions.reset()
         lastRaid = null
@@ -225,12 +259,22 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        ui.removeCallbacks(ticker)
+        ui.post(ticker)
+        com.diriktv.sidekick.data.Network.onReconnected += reconnected
         if (stoppedLive) {
             stoppedLive = false
-            startLive()
+            startLive() // reconnects chat too
+        } else if (mode == Mode.DVR) {
+            channel?.let { if (it.isLive) chat.connect(it) }
         }
     }
 
+    /**
+     * Out of sight without picture-in-picture (Home, another app): stop everything that runs on
+     * its own (the ticker and its channel refresh, chat and its poll checks, the end card's
+     * countdown) so nothing changes, or starts playing, in the background. [onStart] picks it up.
+     */
     override fun onStop() {
         super.onStop()
         saveVodPosition(updateHomeScreen = true)
@@ -239,6 +283,14 @@ class PlayerActivity : FragmentActivity() {
             player.stop()
             stoppedLive = true
         }
+        ui.removeCallbacks(ticker)
+        ui.removeCallbacks(retryRunnable)
+        raidJump?.let { ui.removeCallbacks(it) }
+        raidJump = null
+        stalledSince = 0
+        com.diriktv.sidekick.data.Network.onReconnected -= reconnected
+        if (mode != Mode.VOD) chat.disconnect()
+        if (endCard.showing) endCard.onKey()
     }
 
     override fun onDestroy() {
@@ -248,6 +300,7 @@ class PlayerActivity : FragmentActivity() {
         sleepTimer.cancel()
         chat.close()
         player.release()
+        if (phoneAttached) com.diriktv.sidekick.data.PhoneChat.detach()
     }
 
     // endregion
@@ -373,8 +426,13 @@ class PlayerActivity : FragmentActivity() {
                 KickApi.channel(slug, maxAgeMs = 10_000)
             } catch (e: Exception) {
                 buffering.setVisible(false)
-                showError("Couldn't reach Kick", "Sidekick couldn't load ${channel?.username ?: slug}. Check your internet connection, then try again.",
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                val name = channel?.username ?: slug
+                val why = if (com.diriktv.sidekick.data.KickErrors.isOffline(e)) "Check your internet connection; it tries again by itself once you're back online."
+                else com.diriktv.sidekick.data.KickErrors.describe(e)
+                showError("Couldn't load $name", why,
                     R.drawable.ic_info, ErrorAction("Try again", R.drawable.ic_refresh) { startLive() }, goBack())
+                retryAfterReconnect = true
                 return@launch
             }
             if (target != slug) return@launch
@@ -418,10 +476,13 @@ class PlayerActivity : FragmentActivity() {
 
     /** Play the recording of the current broadcast from [positionMs] after stream start. */
     private fun playDvr(positionMs: Long, announce: Boolean = true) {
+        val target = slug
         lifecycleScope.launch {
             val src = dvrSource ?: runCatching {
-                KickApi.videos(slug).firstOrNull { it.isLive }?.source
+                KickApi.videos(target).firstOrNull { it.isLive }?.source
             }.getOrNull()
+            // Switched to another stream while looking the recording up.
+            if (target != slug || mode == Mode.VOD) return@launch
             if (src == null) {
                 controls.flashOsd("Rewind isn't available for this stream", R.drawable.ic_info)
                 if (mode == Mode.LIVE) player.play()
@@ -526,12 +587,16 @@ class PlayerActivity : FragmentActivity() {
     internal fun onRaid(t: com.diriktv.sidekick.data.RaidTarget) {
         if (mode == Mode.VOD || t.slug.equals(slug, true) || isFinishing) return
         lastRaid = t
+        // In the corner window there's no room for a sheet, and jumping channels there would be a
+        // surprise: the raid is kept for the end card's Up next instead.
+        if (inPip) return
         val from = channel?.username ?: slug
         when (prefs.raidMode) {
             "off" -> return
             "auto" -> {
                 controls.flashOsd("$from raided ${t.username}, taking you there", R.drawable.ic_raid)
-                ui.postDelayed({ if (!isFinishing) Nav.watchLive(this, t.slug) }, 2_500)
+                raidJump?.let { ui.removeCallbacks(it) }
+                raidJump = Runnable { if (!isFinishing && !inPip) Nav.watchLive(this, t.slug) }.also { ui.postDelayed(it, 2_500) }
             }
             else -> {
                 controls.cancelHide()
@@ -561,11 +626,13 @@ class PlayerActivity : FragmentActivity() {
 
     private fun setFollow(c: ChannelInfo) {
         lifecycleScope.launch {
-            val on = Follows.toggle(this@PlayerActivity, c.slug, c.username, c.avatar)
+            val result = Follows.toggle(this@PlayerActivity, c.slug, c.username, c.avatar)
+            val on = result.following
             if (on) com.diriktv.sidekick.ui.Burst.at(controls.btnFollow)
             controls.updateFollowButton()
             controls.updateTooltip(controls.btnFollow)
-            controls.flashOsd(if (on) "Following ${c.username}" else "Unfollowed ${c.username}", if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline)
+            if (result.accountProblem != null) controls.flashOsd(result.accountProblem, R.drawable.ic_info, 5000)
+            else controls.flashOsd(if (on) "Following ${c.username}" else "Unfollowed ${c.username}", if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline)
         }
     }
 
@@ -715,10 +782,14 @@ class PlayerActivity : FragmentActivity() {
             player.prepare()
             return
         }
+        val code = error.errorCode
+        // The TV couldn't decode this quality: step down one before trying again or giving up.
+        if (code in 4000..4999 && stepDownQuality()) return
         retries++
         if (retries <= 4) {
             buffering.setVisible(true)
-            ui.postDelayed({ retry() }, 1500L * retries)
+            ui.removeCallbacks(retryRunnable)
+            ui.postDelayed(retryRunnable, 1500L * retries)
             return
         }
         buffering.setVisible(false)
@@ -726,11 +797,11 @@ class PlayerActivity : FragmentActivity() {
             retries = 0
             retry()
         }
-        val code = error.errorCode
+        val offline = code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+            code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
         when {
-            code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-                showError("Lost connection", "The video stopped loading. Check your internet, then try again.",
+            offline ->
+                showError("Lost connection", "The video stopped loading. Check your internet; it picks up again by itself once you're back online.",
                     R.drawable.ic_refresh, again, goBack())
             code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS || code == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
                 code == PlaybackException.ERROR_CODE_IO_NO_PERMISSION ->
@@ -743,10 +814,36 @@ class PlayerActivity : FragmentActivity() {
             else -> showError("Something went wrong", "Playback stopped unexpectedly. Trying again usually fixes it.",
                 R.drawable.ic_info, again, openChannel())
         }
+        // Network trouble of any kind: coming back online retries by itself.
+        retryAfterReconnect = offline || code in 2000..2999
+    }
+
+    /**
+     * After a decoding error: caps the quality one step below what failed and reloads. Returns
+     * false when there's nothing lower to try (or it already stepped down a few times).
+     */
+    private fun stepDownQuality(): Boolean {
+        if (decoderStepDowns >= 3) return false
+        val heights = menu.videoTracks().map { it.format.height }.filter { it > 0 }.distinct()
+        val failing = player.videoFormat?.height?.takeIf { it > 0 }
+            ?: qualityHeight.takeIf { it > 0 } ?: heights.maxOrNull() ?: return false
+        val lower = heights.filter { it < failing }.maxOrNull() ?: return false
+        decoderStepDowns++
+        // For this stream only: the saved default quality stays as it was.
+        qualityHeight = lower
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .setMaxVideoSize(Int.MAX_VALUE, lower)
+            .build()
+        controls.flashOsd("${failing}p was too much for this TV, switching to ${lower}p", R.drawable.ic_hd, 3500)
+        ui.removeCallbacks(retryRunnable)
+        ui.post(retryRunnable)
+        return true
     }
 
     private fun retry() {
         errorView.setVisible(false)
+        retryAfterReconnect = false
         when (mode) {
             Mode.LIVE -> startLive()
             Mode.DVR -> playDvr(player.currentPosition, announce = false)
@@ -854,6 +951,7 @@ class PlayerActivity : FragmentActivity() {
         controls.tick()
         if (stats.visibility == View.VISIBLE) updateStats()
         val now = System.currentTimeMillis()
+        checkStall(now)
         if (mode != Mode.VOD && now - lastChannelRefresh > 60_000 && !isFinishing) {
             lastChannelRefresh = now
             loadChannel(connectChat = true)
@@ -863,6 +961,25 @@ class PlayerActivity : FragmentActivity() {
             lastPositionSave = now
             saveVodPosition()
         }
+    }
+
+    /**
+     * Live playback can sit buffering forever without an error (a stuck segment, a playlist that
+     * stopped updating). After [STALL_MS] of that, reload at the live edge.
+     */
+    private fun checkStall(now: Long) {
+        val stuck = mode == Mode.LIVE && player.playWhenReady && player.playbackState == Player.STATE_BUFFERING &&
+            errorView.visibility != View.VISIBLE && !endCard.showing && liveLoad?.isActive != true
+        if (!stuck) {
+            stalledSince = 0
+            return
+        }
+        if (stalledSince == 0L) stalledSince = now
+        if (now - stalledSince < STALL_MS) return
+        stalledSince = 0
+        controls.flashOsd("The stream stalled, reconnecting…", R.drawable.ic_refresh, 2500)
+        // Reloads the channel too, so a stream that quietly ended shows its end card.
+        startLive()
     }
 
     private fun updateStats() {

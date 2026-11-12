@@ -27,6 +27,18 @@
         android:paddingEnd="40dp"
         android:paddingBottom="30dp" />
 
+    <!-- Shown when the channel itself couldn't load -->
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="17sp" />
+
     <com.diriktv.sidekick.ui.SwirlingLoader
         android:id="@+id/progress"
         android:layout_width="48dp"

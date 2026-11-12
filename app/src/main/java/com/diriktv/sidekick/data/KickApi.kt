@@ -20,8 +20,27 @@ import java.util.concurrent.TimeUnit
 
 /** Thin client over Kick's public web endpoints. */
 object KickApi {
-    const val USER_AGENT =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    /** The Chrome version claimed when the TV's own WebView can't tell us a newer one. */
+    private const val FALLBACK_CHROME = 142
+
+    /**
+     * A desktop Chrome user agent. Cloudflare is warier of browsers that are years out of date, so
+     * it claims the same Chrome version as the TV's (auto-updating) WebView; see [useChromeVersion].
+     */
+    @Volatile var userAgent = desktopAgent(FALLBACK_CHROME)
+        private set
+
+    private fun desktopAgent(major: Int) =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
+
+    /** Called at start-up with the WebView's version name ("142.0.7444.0"); never goes older than the fallback. */
+    fun useChromeVersion(versionName: String?) {
+        val major = versionName?.substringBefore('.')?.toIntOrNull() ?: return
+        if (major in (FALLBACK_CHROME + 1)..999) userAgent = desktopAgent(major)
+    }
+
+    /** Called (on an OkHttp thread) when Kick rejects the saved session with a 401. */
+    @Volatile var onSessionRejected: (() -> Unit)? = null
 
     // Fallback if the realtime connection endpoint stops answering.
     const val DEFAULT_PUSHER_KEY = "34bf7a0ff419a2a775b9"
@@ -57,13 +76,15 @@ object KickApi {
         .pingInterval(30, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val req = chain.request()
-            val b = req.newBuilder().header("User-Agent", USER_AGENT)
+            val b = req.newBuilder().header("User-Agent", userAgent)
             if (!isApi(req.url)) return@addInterceptor chain.proceed(b.build())
             if (req.header("Accept") == null) b.header("Accept", "application/json")
-            if (needsAuth(req.url)) {
-                authToken?.let { if (req.header("Authorization") == null) b.header("Authorization", "Bearer $it") }
-            }
-            throttled(chain, b.build())
+            // Only the saved session counts: sign-in checks a fresh token with its own header.
+            val sentToken = if (needsAuth(req.url) && req.header("Authorization") == null) authToken else null
+            sentToken?.let { b.header("Authorization", "Bearer $it") }
+            val resp = throttled(chain, b.build())
+            if (resp.code == 401 && sentToken != null && sentToken == authToken) onSessionRejected?.invoke()
+            resp
         }
         .build()
 
@@ -87,15 +108,29 @@ object KickApi {
         }
     }
 
-    private fun httpError(resp: Response) = IOException(
-        if (resp.code == 429) "Kick is limiting requests right now. Try again in a minute."
-        else "HTTP ${resp.code} for ${resp.request.url.encodedPath}"
-    )
+    /** Cloudflare's "checking your browser" page rather than an answer from Kick itself. */
+    private fun isChallenge(resp: Response, body: String) =
+        resp.header("cf-mitigated") != null ||
+            (resp.header("Server")?.contains("cloudflare", true) == true &&
+                (body.contains("Just a moment", true) || body.contains("challenge-platform") || body.contains("cf-chl")))
+
+    private fun httpError(resp: Response, body: String): KickException {
+        val where = "HTTP ${resp.code} for ${resp.request.url.encodedPath}"
+        val kind = when {
+            resp.code == 429 -> KickException.Kind.RATE_LIMITED
+            resp.code == 401 -> KickException.Kind.SIGNED_OUT
+            resp.code == 403 || isChallenge(resp, body) -> KickException.Kind.BLOCKED
+            resp.code == 404 -> KickException.Kind.NOT_FOUND
+            resp.code >= 500 -> KickException.Kind.SERVER
+            else -> KickException.Kind.OTHER
+        }
+        return KickException(kind, resp.code, where)
+    }
 
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         http.newCall(Request.Builder().url(url).build()).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw httpError(resp)
+            if (!resp.isSuccessful) throw httpError(resp, body)
             body
         }
     }
@@ -104,9 +139,23 @@ object KickApi {
         val body = json.toString().toRequestBody("application/json".toMediaType())
         http.newCall(Request.Builder().url(url).method(method, body).build()).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw httpError(resp)
+            if (!resp.isSuccessful) throw httpError(resp, text)
             text
         }
+    }
+
+    private val SLUG = Regex("^[A-Za-z0-9_-]{1,64}$")
+
+    /** Whether [slug] looks like a Kick channel name (letters, digits, - and _). */
+    fun isValidSlug(slug: String?) = slug != null && SLUG.matches(slug)
+
+    /**
+     * [slug] as it goes into a URL path. Anything that isn't a plain channel name (it may have come
+     * from a link another app sent) is refused rather than spliced into the address.
+     */
+    private fun path(slug: String): String {
+        if (!isValidSlug(slug)) throw KickException(KickException.Kind.NOT_FOUND, 0, "Not a channel name")
+        return slug.lowercase()
     }
 
     private class Cached<T>(val at: Long, val value: T)
@@ -176,7 +225,7 @@ object KickApi {
     }
 
     private suspend fun fetchChannel(slug: String): ChannelInfo {
-        val o = JSONObject(get("https://kick.com/api/v2/channels/$slug"))
+        val o = JSONObject(get("https://kick.com/api/v2/channels/${path(slug)}"))
         val user = o.optJSONObject("user") ?: JSONObject()
         val live = o.optJSONObject("livestream")
         val liveCats = live?.optJSONArray("categories")
@@ -216,7 +265,7 @@ object KickApi {
     suspend fun liveStream(slug: String, username: String, avatar: String?, maxAgeMs: Long = 45_000): LiveStream? {
         val key = slug.lowercase()
         liveCache[key]?.let { if (System.currentTimeMillis() - it.at < maxAgeMs) return it.value }
-        val o = JSONObject(get("https://kick.com/api/v2/channels/$key/livestream")).optJSONObject("data")
+        val o = JSONObject(get("https://kick.com/api/v2/channels/${path(key)}/livestream")).optJSONObject("data")
         val live = o?.let {
             LiveStream(
                 slug = slug,
@@ -236,7 +285,7 @@ object KickApi {
 
     /** Most-viewed clips, site-wide or for one channel. [time] is day, week, month or all. */
     suspend fun clips(slug: String? = null, cursor: String? = null, time: String = "day"): Page<Clip> {
-        val base = if (slug == null) "https://kick.com/api/v2/clips" else "https://kick.com/api/v2/channels/${slug.lowercase()}/clips"
+        val base = if (slug == null) "https://kick.com/api/v2/clips" else "https://kick.com/api/v2/channels/${path(slug)}/clips"
         val url = base.toHttpUrl().newBuilder()
             .addQueryParameter("sort", "view")
             .addQueryParameter("time", time)
@@ -267,7 +316,7 @@ object KickApi {
     }
 
     suspend fun videos(slug: String): List<Video> {
-        val arr = JSONArray(get("https://kick.com/api/v2/channels/${slug.lowercase()}/videos"))
+        val arr = JSONArray(get("https://kick.com/api/v2/channels/${path(slug)}/videos"))
         return (0 until arr.length()).mapNotNull { i ->
             val o = arr.getJSONObject(i)
             val source = o.optStringOrNull("source") ?: return@mapNotNull null
@@ -327,7 +376,7 @@ object KickApi {
 
     /** The emotes chat in [slug] can use: the channel's own, then Kick's global ones and emoji. */
     suspend fun emotes(slug: String): List<Emote> {
-        val sets = JSONArray(get("https://kick.com/emotes/${slug.lowercase()}"))
+        val sets = JSONArray(get("https://kick.com/emotes/${path(slug)}"))
         return (0 until sets.length()).flatMap { i ->
             val s = sets.getJSONObject(i)
             val set = when {
@@ -358,13 +407,14 @@ object KickApi {
                 val msg = runCatching { JSONObject(resp.body?.string().orEmpty()).let { o ->
                     o.optJSONObject("status")?.optStringOrNull("message") ?: o.optStringOrNull("message") } }.getOrNull()
                 when {
+                    resp.code == 401 -> "Your Kick sign-in has expired. Sign in again on your TV (Settings → Account)."
                     msg != null -> msg
-                    resp.code == 401 || resp.code == 403 -> "Kick didn't accept the message. You may need to sign in again, or chat may be followers- or subscribers-only."
+                    resp.code == 403 -> "Kick didn't accept the message. Chat may be followers- or subscribers-only."
                     resp.code == 429 -> "You're sending messages too fast."
-                    else -> "Couldn't send (HTTP ${resp.code})."
+                    else -> "Kick couldn't send that message. Try again in a moment."
                 }
             }
-        }.getOrElse { "Couldn't reach Kick: ${it.message}" }
+        }.getOrElse { "Couldn't reach Kick. Check your TV's internet connection." }
     }
 
     /**
@@ -387,13 +437,13 @@ object KickApi {
 
     /** The poll running in [slug]'s chat, or null when there isn't one. */
     suspend fun poll(slug: String): ChatPoll? {
-        val o = runCatching { JSONObject(get("https://kick.com/api/v2/channels/${slug.lowercase()}/polls")) }.getOrNull() ?: return null
+        val o = runCatching { JSONObject(get("https://kick.com/api/v2/channels/${path(slug)}/polls")) }.getOrNull() ?: return null
         return o.optJSONObject("data")?.optJSONObject("poll")?.let { parsePoll(it) }
     }
 
     /** The channel's latest prediction (running, locked or recently decided), or null. */
     suspend fun prediction(slug: String): ChatPoll? {
-        val p = JSONObject(get("https://kick.com/api/v2/channels/${slug.lowercase()}/predictions/latest"))
+        val p = JSONObject(get("https://kick.com/api/v2/channels/${path(slug)}/predictions/latest"))
             .optJSONObject("data")?.optJSONObject("prediction") ?: return null
         val outcomes = p.optJSONArray("outcomes") ?: JSONArray()
         val state = p.optString("state")
@@ -460,10 +510,10 @@ object KickApi {
         return out.values.toList()
     }
 
-    suspend fun setFollow(slug: String, follow: Boolean): Boolean = runCatching {
-        post("https://kick.com/api/v2/channels/${slug.lowercase()}/follow", JSONObject(), if (follow) "POST" else "DELETE")
-        true
-    }.getOrDefault(false)
+    /** Follows or unfollows [slug] on the signed-in account. Throws when Kick doesn't accept it. */
+    suspend fun setFollow(slug: String, follow: Boolean) {
+        post("https://kick.com/api/v2/channels/${path(slug)}/follow", JSONObject(), if (follow) "POST" else "DELETE")
+    }
 
     /** Asks Kick which Pusher app key/cluster serves this channel's chat. */
     suspend fun pusherConfig(channelId: Int): Pair<String, String> = try {

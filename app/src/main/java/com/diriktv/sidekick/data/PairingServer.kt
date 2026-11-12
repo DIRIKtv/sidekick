@@ -3,11 +3,8 @@ package com.diriktv.sidekick.data
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
-import java.net.ServerSocket
 import java.net.Socket
-import java.net.SocketException
 import java.security.SecureRandom
-import java.util.concurrent.Executors
 
 /**
  * A tiny web server on the local network so a phone can type the Kick login for the TV.
@@ -31,46 +28,24 @@ class PairingServer(
     @Volatile var status: JSONObject = JSONObject().put("state", "loading")
 
     private val main = Handler(Looper.getMainLooper())
-    private var socket: ServerSocket? = null
-    private val pool = Executors.newCachedThreadPool()
-    var port = 0
-        private set
+    private val server = LocalHttp.Server("pairing-server") { handle(it) }
+    /** Sign-in attempts and codes: a person types a few; anything faster isn't a person. */
+    private val submits = LocalHttp.RateLimit(max = 10)
+    val port get() = server.port
 
-    fun start(): Boolean {
-        for (p in listOf(8787, 8788, 8789, 0)) {
-            try {
-                socket = ServerSocket(p)
-                port = socket!!.localPort
-                break
-            } catch (e: Exception) {
-                continue
-            }
-        }
-        val server = socket ?: return false
-        pool.execute {
-            Thread.currentThread().name = "pairing-server"
-            while (!server.isClosed) {
-                val client = try { server.accept() } catch (e: SocketException) { break }
-                // A phone dropping mid-request must never take the app down.
-                pool.execute { runCatching { handle(client) } }
-            }
-        }
-        return true
-    }
+    fun start(): Boolean = server.start(listOf(8787, 8788, 8789, 0))
 
-    fun stop() {
-        runCatching { socket?.close() }
-        pool.shutdownNow()
-    }
+    fun stop() = server.stop()
 
     fun url(): String? = lanAddress()?.let { "http://$it:$port/?k=$secret" }
 
-    private fun handle(client: Socket) = client.use { s ->
+    private fun handle(s: Socket) {
         val req = LocalHttp.read(s) ?: return
         val method = req.method
         val path = req.path
         val body = req.body
-        if (req.query["k"] != secret) return respond(s, 403, "text/plain", "This link has expired. Scan the QR code on your TV again.")
+        if (!LocalHttp.keyMatches(req.query["k"], secret)) return respond(s, 403, "text/plain", "This link has expired. Scan the QR code on your TV again.")
+        if (method == "POST" && !submits.allow()) return respond(s, 429, "application/json", """{"ok":false}""")
 
         when {
             method == "GET" && path == "/" -> respond(s, 200, "text/html; charset=utf-8", page)
@@ -104,6 +79,7 @@ class PairingServer(
         private val PAGE = """
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Sidekick sign in</title>
 <style>
 :root{--g:#53FC18;--bg:#0B0E0F;--s:#16191C;--s2:#24272C;--t:#EFEFF1;--t2:#A9ADB4;--t3:#71767E;--e:#3A3E45}

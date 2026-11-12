@@ -150,11 +150,20 @@ internal class ChatController(private val act: PlayerActivity) {
 
     // endregion
 
+    /**
+     * Bumped by [reset] (switching channels) and [disconnect]. Every lookup started for a channel
+     * checks it when it returns, so a slow answer for the previous channel can't land in this one.
+     */
+    private var generation = 0
+
     fun connect(c: ChannelInfo) {
+        val gen = generation
         if (liveChannel?.id != c.id) {
             liveChannel = c
             act.lifecycleScope.launch {
-                pinned = runCatching { KickApi.pinnedMessage(c.id) }.getOrNull()
+                val p = runCatching { KickApi.pinnedMessage(c.id) }.getOrNull()
+                if (gen != generation) return@launch
+                pinned = p
                 showPinned()
             }
             act.ui.removeCallbacks(pollTick)
@@ -166,6 +175,8 @@ internal class ChatController(private val act: PlayerActivity) {
         connecting = true
         act.lifecycleScope.launch {
             val (key, cluster) = KickApi.pusherConfig(c.id)
+            // Switched channels (or left) while asking: the newer connect() owns chat now.
+            if (gen != generation) return@launch
             connecting = false
             if (act.isDestroyed || client != null) return@launch
             client = ChatClient(
@@ -194,8 +205,11 @@ internal class ChatController(private val act: PlayerActivity) {
         }
         if (emotesFor == c.userId && !force) return
         emotesFor = c.userId
+        val gen = generation
         act.lifecycleScope.launch {
-            adapter.thirdPartyEmotes = SevenTv.emotes(c.userId)
+            val emotes = SevenTv.emotes(c.userId)
+            if (gen != generation || emotesFor != c.userId) return@launch
+            adapter.thirdPartyEmotes = emotes
             if (act.mode != PlayerActivity.Mode.VOD) PhoneChat.sevenTv = adapter.thirdPartyEmotes
             // Most channels have a modest 7TV set; warm it too (a huge one is left to load as used).
             if (adapter.thirdPartyEmotes.size <= 300) adapter.prefetch(adapter.thirdPartyEmotes.values)
@@ -215,8 +229,10 @@ internal class ChatController(private val act: PlayerActivity) {
     private fun prefetchEmotes(c: ChannelInfo) {
         if (prefetchedFor == c.slug) return
         prefetchedFor = c.slug
+        val gen = generation
         act.lifecycleScope.launch {
-            runCatching { KickApi.emoteUrls(c.slug) }.getOrNull()?.let { adapter.prefetch(it) }
+            val urls = runCatching { KickApi.emoteUrls(c.slug) }.getOrNull()
+            if (gen == generation) urls?.let { adapter.prefetch(it) }
         }
     }
 
@@ -309,8 +325,21 @@ internal class ChatController(private val act: PlayerActivity) {
         adapter.restyle()
     }
 
+    /**
+     * The player went into the background: drop the connection and stop the poll checks, keeping
+     * what's on screen. The next [connect] starts them again.
+     */
+    fun disconnect() {
+        generation++
+        close()
+        client = null
+        connecting = false
+        liveChannel = null
+    }
+
     /** Drops the connection and messages (switching to another channel). */
     fun reset() {
+        generation++
         close()
         client = null
         connecting = false

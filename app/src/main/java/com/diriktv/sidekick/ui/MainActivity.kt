@@ -135,8 +135,13 @@ class MainActivity : FragmentActivity() {
     fun showAccount() {
         val prefs = com.diriktv.sidekick.data.Prefs(this)
         val name = prefs.accountName?.takeIf { com.diriktv.sidekick.data.Follows.signedIn }
-        findViewById<TextView>(R.id.navName).text = name ?: "Sign in"
-        findViewById<View>(R.id.navAccount).contentDescription = if (name != null) "Signed in as $name" else "Sign in to Kick"
+        val expired = com.diriktv.sidekick.data.Follows.sessionExpired
+        findViewById<TextView>(R.id.navName).text = if (expired) "Sign in again" else name ?: "Sign in"
+        findViewById<View>(R.id.navAccount).contentDescription = when {
+            expired -> "Your Kick sign-in has expired. Sign in again"
+            name != null -> "Signed in as $name"
+            else -> "Sign in to Kick"
+        }
         findViewById<android.widget.ImageView>(R.id.navAvatar).apply {
             if (name != null) { imageTintList = null; loadAvatar(prefs.accountAvatar, name) }
             else { setImageResource(R.drawable.ic_account); imageTintList = getColorStateList(R.color.nav_text) }
@@ -211,6 +216,11 @@ class MainActivity : FragmentActivity() {
     private fun checkForUpdateOnOpen() {
         if (!com.diriktv.sidekick.data.Updater.openedPending) return
         com.diriktv.sidekick.data.Updater.openedPending = false
+        // The app crashed last time: offer to report it (nothing leaves the TV unless they do).
+        if (com.diriktv.sidekick.data.CrashReports.pending(this) != null) {
+            content.postDelayed({ if (!isFinishing && hasWindowFocus()) offerCrashReport() }, 2500)
+            return
+        }
         content.postDelayed({
             lifecycleScope.launch {
                 val release = com.diriktv.sidekick.data.Updater.checkIfDue(this@MainActivity)
@@ -219,6 +229,32 @@ class MainActivity : FragmentActivity() {
                 if (!isFinishing && hasWindowFocus()) UpdateFlow(this@MainActivity, release).show()
             }
         }, 2500)
+    }
+
+    private fun offerCrashReport() {
+        val crash = com.diriktv.sidekick.data.CrashReports.pending(this) ?: return
+        var reporting = false
+        val sheet = OptionSheet(this)
+        // Asked once: closing it with Back counts as "no".
+        sheet.onDismiss = { if (!reporting) com.diriktv.sidekick.data.CrashReports.clear(this) }
+        sheet.show(OptionSheet.Page("Sidekick closed unexpectedly", eyebrow = "Last time",
+            subtitle = "A report helps get it fixed. It opens on your phone with the details filled in, and nothing is sent until you submit it.") {
+            listOf(
+                OptionSheet.Item("Report it from my phone", icon = R.drawable.ic_phone) { sheet ->
+                    reporting = true
+                    sheet.dismiss()
+                    QrDialog.show(this, "Report the crash",
+                        "Scan with your phone to open a bug report on GitHub with the crash details, Sidekick's version and this TV's model filled in. Add what you were doing, then submit it.",
+                        com.diriktv.sidekick.data.CrashReports.issueUrl(crash), "github.com/${com.diriktv.sidekick.data.Updater.REPO}/issues") {
+                        com.diriktv.sidekick.data.CrashReports.clear(this)
+                    }
+                },
+                OptionSheet.Item("Don't report", icon = R.drawable.ic_close) { sheet ->
+                    com.diriktv.sidekick.data.CrashReports.clear(this)
+                    sheet.dismiss()
+                },
+            )
+        })
     }
 
     /** A red count of live followed channels on the Following heart (nothing when none are). */
@@ -231,9 +267,22 @@ class MainActivity : FragmentActivity() {
         navItems[1].contentDescription = if (n > 0) "Following, $n live" else "Following"
     }
 
+    private val sessionListener: () -> Unit = { showAccount(); if (active == 4) pages[4]?.onShown() }
+
+    /** The connection came back: whatever is open loads again instead of sitting on an error. */
+    private val reconnected: () -> Unit = {
+        if (!isFinishing) {
+            (pages[0] as? HomePage)?.onReconnected()
+            (pages[2] as? BrowsePage)?.onReconnected()
+            if (active == 1) pages[1]?.onShown()
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         com.diriktv.sidekick.data.Follows.liveListeners += liveListener
+        com.diriktv.sidekick.data.Follows.sessionListeners += sessionListener
+        com.diriktv.sidekick.data.Network.onReconnected += reconnected
         showLiveCount()
         content.post(liveTick)
         content.post(clockTick)
@@ -243,6 +292,8 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         com.diriktv.sidekick.data.Follows.liveListeners -= liveListener
+        com.diriktv.sidekick.data.Follows.sessionListeners -= sessionListener
+        com.diriktv.sidekick.data.Network.onReconnected -= reconnected
         content.removeCallbacks(liveTick)
         content.removeCallbacks(clockTick)
         super.onStop()

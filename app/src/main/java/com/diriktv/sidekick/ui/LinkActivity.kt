@@ -33,7 +33,8 @@ class LinkActivity : Activity() {
         } else null
         when {
             data?.scheme != "sidekick" || target == null -> startActivity(Intent(this, MainActivity::class.java))
-            data.host == "watch" -> Nav.watchLive(this, target)
+            // Any app can send these links: only a plain channel name gets through to the player.
+            data.host == "watch" && com.diriktv.sidekick.data.KickApi.isValidSlug(target) -> Nav.watchLive(this, target)
             vod != null -> Nav.watchVod(this, vod.slug, Video(target, vod.title, vod.source!!, vod.thumbnail, vod.durationMs, 0, vod.createdAt, vod.category))
             else -> startActivity(Intent(this, MainActivity::class.java))
         }

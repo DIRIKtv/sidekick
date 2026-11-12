@@ -142,9 +142,16 @@ class ChatClient(
         })
     }
 
+    /** Set once "reconnecting" has been said for the current outage; cleared when chat is back. */
+    @Volatile private var announcedOutage = false
+
     private fun reconnect() {
         if (closed) return
-        main.post { onStatus("Chat disconnected, reconnecting…") }
+        // One line per outage, not one per failed attempt.
+        if (!announcedOutage) {
+            announcedOutage = true
+            main.post { onStatus("Chat disconnected, reconnecting…") }
+        }
         val delay = (1000L shl retries.coerceAtMost(5)).coerceAtMost(30_000L)
         retries++
         main.postDelayed({ connect() }, delay)
@@ -164,7 +171,10 @@ class ChatClient(
                 }
             }
             "pusher_internal:subscription_succeeded" ->
-                if (msg.optString("channel").startsWith("chatrooms.")) main.post { onStatus("Connected to chat") }
+                if (msg.optString("channel").startsWith("chatrooms.")) {
+                    announcedOutage = false
+                    main.post { onStatus("Connected to chat") }
+                }
             "pusher:ping" -> ws.send("""{"event":"pusher:pong","data":{}}""")
             "App\\Events\\ChatMessageEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }

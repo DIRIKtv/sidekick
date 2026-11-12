@@ -34,7 +34,7 @@ object PlayerFactory {
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                     .setAudioProcessors(listOfNotNull<AudioProcessor>(leveler).toTypedArray())
                     .build()
-        }
+        }.setEnableDecoderFallback(true) // a decoder that fails to start hands over to the next one on the TV
         val player = ExoPlayer.Builder(context, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
             .setBandwidthMeter(SidekickApp.bandwidthMeter(context))

@@ -225,6 +225,8 @@ internal class EndCard(private val act: PlayerActivity) {
     }
 
     private fun startCountdown() {
+        // Left in the background (Home without picture-in-picture): never switch streams unseen.
+        if (!act.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return
         secondsLeft = COUNTDOWN_S
         countdownBar.setVisible(true)
         countdownBar.scaleX = 1f
@@ -239,7 +241,10 @@ internal class EndCard(private val act: PlayerActivity) {
         watch.text = "Watch ${s.username} in $secondsLeft"
     }
 
-    /** A key was pressed while the card is up: the countdown stops, so nothing happens behind your back. */
+    /**
+     * A key was pressed while the card is up (or the player went into the background): the
+     * countdown stops, so nothing happens behind your back.
+     */
     fun onKey() {
         if (secondsLeft > 0) stopCountdown()
     }

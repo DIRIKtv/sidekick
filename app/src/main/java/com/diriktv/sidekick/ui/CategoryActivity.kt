@@ -22,6 +22,7 @@ class CategoryActivity : FragmentActivity() {
     private lateinit var list: RecyclerView
     private lateinit var status: TextView
     private lateinit var progress: View
+    private val errorRetry by lazy { ErrorRetry(status) }
     private var cursor: String? = null
     private var done = false
     private var busy = false
@@ -52,7 +53,7 @@ class CategoryActivity : FragmentActivity() {
     private fun load() {
         if (busy || done) return
         busy = true
-        progress.setVisible(adapter.itemCount <= 1)
+        progress.setVisible(adapter.itemCount <= 1 && !errorRetry.showing)
         val lang = if (allLanguages) null else Prefs(this).language.ifEmpty { null }
         lifecycleScope.launch {
             try {
@@ -67,12 +68,18 @@ class CategoryActivity : FragmentActivity() {
                 cursor = page.next
                 done = page.next == null
                 if (first) {
-                    if (page.items.isEmpty()) status.text = "Nobody is live here right now."
+                    errorRetry.hide()
+                    status.text = if (page.items.isEmpty()) "Nobody is live here right now." else ""
                     list.post { list.layoutManager?.findViewByPosition(1)?.requestFocus() }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (adapter.itemCount <= 1) status.text = "Couldn't load streams.\n${e.message}"
-                done = true
+                // Not marked done, so the button (or scrolling on, for later pages) tries again.
+                if (adapter.itemCount <= 1) {
+                    errorRetry.show("Couldn't load streams", e) { load() }
+                    errorRetry.focusable?.requestFocus()
+                }
             } finally {
                 busy = false
                 progress.setVisible(false)

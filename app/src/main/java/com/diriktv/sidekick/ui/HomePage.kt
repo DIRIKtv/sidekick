@@ -41,6 +41,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
     private companion object {
         /** Rows loaded straight away; the others wait until they're about to be seen. */
         const val EAGER_ROWS = 4
+        /** A row that failed to load tries again at most this often as it scrolls into view. */
+        const val ROW_RETRY_MS = 15_000L
     }
 
     private val prefs = Prefs(act)
@@ -103,6 +105,8 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         var cursor: String? = null
         var done = false
         var busy = false
+        /** When the last load failed (0 = it didn't). A failed row tries again when it's next seen. */
+        var failedAt = 0L
         var scrollState: Parcelable? = null
         /** The card that last had focus, so coming back to the row lands on it. */
         var focusPos = 0
@@ -113,22 +117,33 @@ class HomePage(private val act: FragmentActivity) : MainPage {
             onNearEnd = { loadMore() },
         )
 
-        fun loadMore() {
+        /** Nothing to show: it failed before loading any cards. Such a row takes no room. */
+        val empty get() = adapter.itemCount == 0 && (failedAt > 0 || done)
+
+        fun loadMore(force: Boolean = false) {
             if (busy || done) return
+            // Don't hammer Kick while it's failing; scrolling back to the row after a bit retries.
+            if (!force && failedAt > 0 && System.currentTimeMillis() - failedAt < ROW_RETRY_MS) return
             busy = true
             act.lifecycleScope.launch {
+                val wasEmpty = empty
                 try {
                     val page = loader(cursor)
                     val seen = adapter.items.map { it.key }.toSet()
                     adapter.append(page.items.filter { it.key !in seen && !prefs.isHiddenCategory(it.categoryName) })
                     cursor = page.next
                     done = page.next == null
+                    failedAt = 0
                     if (pendingFocus && page.items.isNotEmpty()) list.post { if (focusContent()) pendingFocus = false }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    done = true
+                    failedAt = System.currentTimeMillis()
                 } finally {
                     busy = false
                 }
+                // Show or hide the row as it gains its first cards or turns out to have none.
+                if (wasEmpty != empty) rows.indexOf(this@Row).takeIf { it >= 0 }?.let { rowAdapter.notifyItemChanged(it + heroOffset) }
             }
         }
     }
@@ -171,6 +186,12 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                 return
             }
             val row = rows[position - heroOffset]
+            // A row with nothing in it (it failed, or Kick had nothing) takes no room, title and all.
+            val wantHeight = if (row.empty) 0 else ViewGroup.LayoutParams.WRAP_CONTENT
+            if (holder.itemView.layoutParams.height != wantHeight) {
+                holder.itemView.layoutParams = holder.itemView.layoutParams.apply { height = wantHeight }
+            }
+            holder.itemView.visibility = if (row.empty) View.INVISIBLE else View.VISIBLE
             holder.itemView.findViewById<TextView>(R.id.rowTitle).text = row.title
             val rv = holder.itemView.findViewById<RecyclerView>(R.id.rowList)
             val height = if (row.circles) circleRowHeight else rowListHeight
@@ -390,11 +411,20 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                 val lang = prefs.language.ifEmpty { null }
 
                 val liveFollowsJob = async { runCatching { Follows.liveNow(act) }.getOrDefault(emptyList()) }
-                val categoriesJob = async { runCatching { KickApi.categories(1, 8).items }.getOrDefault(emptyList()) }
-                val topJob = async { runCatching { KickApi.livestreams(language = lang, limit = 24) }.getOrNull() }
+                val categoriesJob = async { runCatching { KickApi.categories(1, 8).items } }
+                val topJob = async { runCatching { KickApi.livestreams(language = lang, limit = 24) } }
 
                 val liveFollows = liveFollowsJob.await()
-                val top = topJob.await()
+                val topResult = topJob.await()
+                val categoriesResult = categoriesJob.await()
+                val top = topResult.getOrNull()
+                // Nothing at all came back (offline, or Kick turning us away): say so, rather than
+                // showing row titles with no cards under them.
+                if (top == null && categoriesResult.isFailure && liveFollows.isEmpty()) {
+                    showLoadError(topResult.exceptionOrNull())
+                    return@launch
+                }
+                failedLoad = false
                 liveSlugs = liveFollows.map { it.slug.lowercase() }.toSet()
                 TvHome.publishAsync(act, liveFollows, top?.items.orEmpty())
 
@@ -416,7 +446,7 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                     val page = KickApi.clips(cursor = cursor, time = "day")
                     Page(page.items.map { GridItem.Clip(it) }, page.next)
                 }
-                for (cat in categoriesJob.await().filterNot { prefs.isHiddenCategory(it.name) }) {
+                for (cat in categoriesResult.getOrDefault(emptyList()).filterNot { prefs.isHiddenCategory(it.name) }) {
                     newRows += Row(cat.name) { KickApi.livestreams(cursor = it, categoryId = cat.id, language = lang).asCards() }
                 }
 
@@ -427,8 +457,10 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                 // Only the rows near the top load now; the rest load as they scroll into view.
                 rows.take(EAGER_ROWS).forEach { it.loadMore() }
                 if (pendingFocus && heroItems.isNotEmpty()) list.post { if (focusContent()) pendingFocus = false }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                status.text = "Couldn't reach Kick. Check your connection.\n\nPress ☰ on the remote to try again."
+                showLoadError(e)
             } finally {
                 progress.setVisible(false)
                 loading = false
@@ -436,6 +468,36 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                 onFirstLoad = null
             }
         }
+    }
+
+    /** The last reload got nothing from Kick. */
+    private var failedLoad = false
+
+    private fun showLoadError(e: Throwable?) {
+        failedLoad = true
+        lastLoad = 0 // try again next time Home is shown
+        if (rows.any { !it.local && it.adapter.itemCount > 0 }) {
+            // Already showing something: keep it rather than swapping it for an error.
+            android.widget.Toast.makeText(act, "Couldn't refresh Home. ${com.diriktv.sidekick.data.KickErrors.describe(e)}",
+                android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        heroItems = emptyList()
+        rows.clear()
+        @Suppress("NotifyDataSetChanged") // everything went
+        rowAdapter.notifyDataSetChanged()
+        status.gravity = android.view.Gravity.CENTER
+        status.text = "Couldn't reach Kick\n\n${com.diriktv.sidekick.data.KickErrors.describe(e)}\n\n" +
+            "Press ☰ to try again. Home also reloads by itself when the connection comes back."
+    }
+
+    /** The internet came back: if Home couldn't load, or rows failed, load them now. */
+    fun onReconnected() {
+        if (failedLoad) {
+            reload()
+            return
+        }
+        rows.filter { it.failedAt > 0 }.forEach { it.loadMore(force = true) }
     }
 
     override fun focusContent(): Boolean {

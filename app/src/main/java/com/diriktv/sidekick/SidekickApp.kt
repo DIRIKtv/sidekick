@@ -35,8 +35,14 @@ class SidekickApp : Application(), SingletonImageLoader.Factory, android.content
 
     override fun onCreate() {
         super.onCreate()
+        com.diriktv.sidekick.data.CrashReports.install(this)
         val am = getSystemService(android.app.ActivityManager::class.java)
         com.diriktv.sidekick.ui.Img.lowMemory = am.isLowRamDevice || am.memoryClass < 192
+        // Claim the same Chrome version as the TV's WebView (reading the package doesn't start it).
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            runCatching { KickApi.useChromeVersion(android.webkit.WebView.getCurrentWebViewPackage()?.versionName) }
+        }
+        com.diriktv.sidekick.data.Network.init(this)
         Follows.init(this)
         LiveAlerts.init(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

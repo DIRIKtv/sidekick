@@ -159,7 +159,9 @@ internal class PlayerMenu(private val act: PlayerActivity) {
     }
 
     private fun setQuality(t: TrackChoice?) {
+        // A pick from the menu replaces any cap set after a decoding error.
         val builder = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
         act.qualityHeight = t?.format?.height ?: 0
         if (t != null) builder.setOverrideForType(TrackSelectionOverride(t.group.mediaTrackGroup, t.index))
         player.trackSelectionParameters = builder.build()

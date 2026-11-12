@@ -11,6 +11,7 @@ import androidx.core.content.FileProvider
 import com.diriktv.sidekick.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
@@ -94,7 +95,10 @@ object Updater {
     suspend fun download(context: Context, release: Release, onProgress: (done: Long, total: Long) -> Unit): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
         val file = File(dir, "Sidekick-${release.version}.apk")
+        if (!isGitHub(release.apkUrl.toHttpUrlOrNull()?.host)) throw IOException("That update isn't from Sidekick's GitHub page, so it wasn't downloaded.")
         KickApi.http.newCall(Request.Builder().url(release.apkUrl).build()).execute().use { resp ->
+            // Followed redirects must end up on GitHub's own download servers too.
+            if (!isGitHub(resp.request.url.host)) throw IOException("The download was sent somewhere other than GitHub, so it was stopped.")
             if (!resp.isSuccessful) throw IOException("Download failed (${resp.code})")
             val body = resp.body ?: throw IOException("Empty download")
             val total = body.contentLength().takeIf { it > 0 } ?: release.sizeBytes
@@ -120,7 +124,49 @@ object Updater {
                 }
             }
         }
+        try {
+            verify(context, file)
+        } catch (e: IOException) {
+            file.delete()
+            throw e
+        }
         file
+    }
+
+    private fun isGitHub(host: String?): Boolean {
+        val h = host?.lowercase() ?: return false
+        return h == "github.com" || h.endsWith(".github.com") || h.endsWith(".githubusercontent.com")
+    }
+
+    /**
+     * Checks the downloaded APK is Sidekick, signed with the same key as the installed app, before
+     * the installer sees it. Android would refuse a mismatch anyway, but this says why plainly.
+     * When Android can't read the file's certificates (some older versions), the installer decides.
+     */
+    @Suppress("DEPRECATION")
+    private fun verify(context: Context, apk: File) {
+        val pm = context.packageManager
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+            else android.content.pm.PackageManager.GET_SIGNATURES
+        val archive = pm.getPackageArchiveInfo(apk.path, flags)
+            ?: throw IOException("The download isn't a complete app. Try again.")
+        // Debug builds install alongside the release app, so they compare against its name.
+        val expected = context.packageName.removeSuffix(".debug")
+        if (archive.packageName != expected) throw IOException("The download isn't Sidekick, so it won't be installed.")
+        if (archive.packageName != context.packageName) return // a debug build fetching the release: not an update of itself
+        val installed = pm.getPackageInfo(context.packageName, flags)
+        fun certs(info: android.content.pm.PackageInfo): Set<String>? {
+            val sigs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.signingInfo?.let { if (it.hasMultipleSigners()) it.apkContentsSigners else it.signingCertificateHistory }
+            } else info.signatures
+            return sigs?.filterNotNull()?.map { java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } }
+                ?.toSet()?.takeIf { it.isNotEmpty() }
+        }
+        val mine = certs(installed) ?: return
+        val theirs = certs(archive) ?: return
+        if (mine.intersect(theirs).isEmpty()) {
+            throw IOException("This update isn't signed by Sidekick's developer, so it won't be installed. Get Sidekick from github.com/$REPO instead.")
+        }
     }
 
     /** Whether Android will let this app open the installer (Android 8+ asks per app). */
