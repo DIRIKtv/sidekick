@@ -250,7 +250,6 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         status.setTextColor(act.getColor(R.color.text_secondary))
         status.textSize = 17f
         status.font(AppFonts.Weight.REGULAR)
-        showSnapshot()
     }
 
     // region instant start and in-place refresh
@@ -262,6 +261,20 @@ class HomePage(private val act: FragmentActivity) : MainPage {
      * fresh one loads, instead of the skeleton. Its cards are replaced as soon as Kick answers.
      */
     private fun showSnapshot() {
+        try {
+            showSnapshotNow()
+        } catch (e: Exception) {
+            // A snapshot that can't be shown must never stop the app opening: drop it and load as usual.
+            runCatching { snapshotFile.delete() }
+            heroItems = emptyList()
+            rows.clear()
+            @Suppress("NotifyDataSetChanged") // back to nothing
+            rowAdapter.notifyDataSetChanged()
+            progress.setVisible(true)
+        }
+    }
+
+    private fun showSnapshotNow() {
         val snap = runCatching {
             val f = snapshotFile
             if (!f.exists() || System.currentTimeMillis() - f.lastModified() > SNAPSHOT_MAX_AGE_MS) return
@@ -604,6 +617,14 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         if (list.childCount == 0) return false
         return list.requestFocus()
     }
+
+    // Last in the class on purpose: Kotlin runs property initializers and init blocks in the order
+    // they're written, so showing the saved Home any earlier read properties (liveSlugs,
+    // loadedHistory) that weren't set up yet, and crashed the app as it opened.
+    init {
+        showSnapshot()
+    }
+
 }
 
 private fun Page<LiveStream>.asCards(): Page<GridItem> = Page(items.map { GridItem.Stream(it) }, next)
