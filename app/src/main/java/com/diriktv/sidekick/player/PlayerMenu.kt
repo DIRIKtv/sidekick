@@ -370,7 +370,8 @@ internal class PlayerMenu(private val act: PlayerActivity) {
     }
 
     private fun filterSummary(): String {
-        val on = listOf(prefs.chatHideBots, prefs.chatHideCommands, prefs.chatCalm).count { it }
+        val on = listOf(prefs.chatHideBots, prefs.chatHideCommands, prefs.chatCalm,
+            prefs.chatMutedWords.isNotEmpty(), prefs.chatBlockedUsers.isNotEmpty()).count { it }
         return if (on == 0) "Off" else "$on on"
     }
 
@@ -379,6 +380,14 @@ internal class PlayerMenu(private val act: PlayerActivity) {
         listOf(
             OptionSheet.Item("Hide bot messages", sub = "Botrix, Kickbot and anyone with a bot badge", value = onOff(prefs.chatHideBots)) {
                 prefs.chatHideBots = !prefs.chatHideBots; it.refresh()
+            },
+            OptionSheet.Item("Muted words", sub = "Hide messages with these words or phrases",
+                value = prefs.chatMutedWords.size.takeIf { it > 0 }?.toString() ?: "None") {
+                com.diriktv.sidekick.ui.ChatFilterLists.mutedWords(act) { it.refresh() }
+            },
+            OptionSheet.Item("Blocked users", sub = "Never show these people's messages",
+                value = prefs.chatBlockedUsers.size.takeIf { it > 0 }?.toString() ?: "None") {
+                com.diriktv.sidekick.ui.ChatFilterLists.blockedUsers(act) { it.refresh() }
             },
             OptionSheet.Item("Hide !commands", sub = "Messages that start with !", value = onOff(prefs.chatHideCommands)) {
                 prefs.chatHideCommands = !prefs.chatHideCommands; it.refresh()

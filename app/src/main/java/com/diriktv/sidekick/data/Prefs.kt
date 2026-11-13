@@ -132,6 +132,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("chat_hide_bots", false)
         set(v) = sp.edit().putBoolean("chat_hide_bots", v).apply()
 
+    /** Chat messages containing any of these (whole words or phrases, any case) are hidden. */
+    var chatMutedWords: Set<String>
+        get() = sp.getStringSet("chat_muted_words", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("chat_muted_words", v.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()).apply()
+
+    /** Usernames whose chat messages are never shown (lowercase). */
+    var chatBlockedUsers: Set<String>
+        get() = sp.getStringSet("chat_blocked_users", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("chat_blocked_users", v.map { it.trim().removePrefix("@").lowercase() }.filter { it.isNotEmpty() }.toSet()).apply()
+
     /** Hide "!command" messages. */
     var chatHideCommands: Boolean
         get() = sp.getBoolean("chat_hide_commands", false)

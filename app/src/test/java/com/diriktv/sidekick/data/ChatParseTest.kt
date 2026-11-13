@@ -89,3 +89,24 @@ class ChatEventParseTest {
         assertNull(parseChatEvent("App\\Events\\Other", JSONObject("{}")))
     }
 }
+
+class MutedWordsTest {
+    private val p = com.diriktv.sidekick.player.ChatFilter.mutedPattern(listOf("spoiler", "game over", "c++"))!!
+
+    @Test
+    fun wholeWordsAndPhrasesAnyCase() {
+        org.junit.Assert.assertTrue(p.containsMatchIn("big SPOILER ahead"))
+        org.junit.Assert.assertTrue(p.containsMatchIn("it's game over, gg"))
+        org.junit.Assert.assertTrue(p.containsMatchIn("learning c++ today"))
+        // Not inside other words.
+        org.junit.Assert.assertFalse(p.containsMatchIn("spoilers"))
+        org.junit.Assert.assertFalse(p.containsMatchIn("the gameover screen"))
+    }
+
+    @Test
+    fun emoteCodesCountAsTheirNames() {
+        val text = com.diriktv.sidekick.player.ChatFilter.visibleText("lol [emote:123:spoiler]")
+        org.junit.Assert.assertTrue(p.containsMatchIn(text))
+        org.junit.Assert.assertNull(com.diriktv.sidekick.player.ChatFilter.mutedPattern(listOf(" ", "")))
+    }
+}

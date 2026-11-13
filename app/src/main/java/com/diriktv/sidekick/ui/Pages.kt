@@ -731,6 +731,14 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                     { onOff(prefs.chatHideBots) }, toggle = { prefs.chatHideBots }) {
                     prefs.chatHideBots = !prefs.chatHideBots
                 },
+                Setting("Muted words", { "Hide messages containing these words or phrases" }, R.drawable.ic_hide,
+                    { prefs.chatMutedWords.size.takeIf { it > 0 }?.toString() ?: "None" }) {
+                    ChatFilterLists.mutedWords(act) { render() }
+                },
+                Setting("Blocked users", { "Never show these people's messages" }, R.drawable.ic_hide,
+                    { prefs.chatBlockedUsers.size.takeIf { it > 0 }?.toString() ?: "None" }) {
+                    ChatFilterLists.blockedUsers(act) { render() }
+                },
                 Setting("Hide !commands", { "Messages that start with !" }, R.drawable.ic_command,
                     { onOff(prefs.chatHideCommands) }, toggle = { prefs.chatHideCommands }) {
                     prefs.chatHideCommands = !prefs.chatHideCommands
@@ -1026,8 +1034,15 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             if (row.toggle != null) render()
         }
         v.setOnKeyListener { _, keyCode, event ->
-            if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) sectionViews[current].requestFocus()
-            else false
+            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> sectionViews[current].requestFocus()
+                // The ends of the list stay put (holding ▼ used to run off onto the account at the
+                // bottom of the side menu).
+                KeyEvent.KEYCODE_DPAD_DOWN -> container.indexOfChild(v) == rows.size - 1
+                KeyEvent.KEYCODE_DPAD_UP -> container.indexOfChild(v) == 0
+                else -> false
+            }
         }
     }
 
