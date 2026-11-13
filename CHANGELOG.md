@@ -3,6 +3,36 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.9.0 · November 12, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Live now, one press away:** press ▼ while watching to see the channels you follow that are live, as cards along the bottom of the picture. OK switches to one
+- **Channel up and down:** CH+/CH− (and next/previous) jump to the next live channel you follow; on a clip, next plays the next clip
+- **Clips keep playing:** when a clip ends, the next one from the same row comes up after a short countdown
+- **Voice and TV remote controls:** "pause", "rewind 30 seconds" and the play buttons on TV remotes that send them over HDMI now work, and the TV's Now Playing card shows what's on
+- **Picture size:** Fit, Stretch or Zoom for 4:3 and ultrawide streams (☰ → Picture size)
+- **Animated emotes:** moving emotes play in chat (Settings → Chat; off by default on TVs short of memory)
+- **Multi-view layouts:** one big stream with the others beside it, and your last multi-view can be opened again from the player
+- **Clear cache:** Settings → App shows how much space Sidekick's cache takes and clears it
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Captions are remembered:** on or off and the language you pick carry over to every stream, and until you choose they follow your TV's captions setting and style
+- **Lower latency:** with Low latency on, live streams now play about 4 seconds behind live instead of 8
+- **Chat on joining:** chat opens with the latest messages instead of empty, and fills in what was missed after a dropped connection
+- **More of what happens in chat:** replies show what they answer, messages mentioning you stand out, bans and timeouts remove that person's messages, and subs, gifts, hosts and slow or followers-only mode are shown
+- **The end of a stream:** the end card comes up as soon as the broadcast ends instead of up to a minute later, and the sleep timer can stop when the stream ends. Its one-minute warning offers 15 more minutes
+- **Plays nicely with other apps:** the player pauses when another app starts playing sound, and picture-in-picture has a play/pause button and the stream's real shape
+- **Faster start:** Home appears straight away with what you last saw while it loads, and stays up to date while you sit on it
+- **Smoother busy chat, browsing and multi-view:** busy chat uses far less work per message, previews download less, adding a stream to multi-view no longer restarts the others, and the Following page no longer slows down opening a stream
+- **Fresher cards:** live thumbnails on cards and the TV's home-screen row stay up to date, and the home-screen row updates in place
+- **Phone chat:** the phone page gets messages the moment they arrive while using fewer connections
+- **Tidier storage:** the image cache has a size limit, and old update downloads, resume points and chat layouts are cleaned up
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- The player clock ignored your TV's 24-hour setting
+- Live thumbnails on cards could be out of date for the whole session
+- A search could keep running in the background after you typed the next letter
+
 ## 1.8.6 · November 11, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
