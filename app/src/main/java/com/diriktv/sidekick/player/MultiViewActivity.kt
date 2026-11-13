@@ -32,7 +32,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Two to four live streams at once. The focused tile plays sound; OK opens it full screen and
- * ☰ adds, swaps or removes streams.
+ * ☰ adds, swaps or removes streams, or switches between an even grid and one big stream with
+ * the others beside it. The set is remembered, to open again from the player.
  */
 class MultiViewActivity : FragmentActivity() {
     companion object {
@@ -42,7 +43,23 @@ class MultiViewActivity : FragmentActivity() {
         fun start(ctx: Context, slugs: List<String>) {
             ctx.startActivity(Intent(ctx, MultiViewActivity::class.java).putExtra(EXTRA_SLUGS, ArrayList(slugs)))
         }
+
+        /** Offline, ended or failed tiles look again this often, and start by themselves once live. */
+        private const val RECHECK_MS = 60_000L
+
+        /**
+         * How many videos the TV's H.264 decoder says it can play at once, or 0 when it doesn't
+         * say. Many TVs manage only one or two in hardware.
+         */
+        fun decoderLimit(): Int = runCatching {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                .filter { !it.isEncoder && it.supportedTypes.any { t -> t.equals("video/avc", true) } }
+                .maxOfOrNull { it.getCapabilitiesForType("video/avc").maxSupportedInstances } ?: 0
+        }.getOrDefault(0)
     }
+
+    /** What a tile is doing, so the menu and the re-check know which ones need another go. */
+    private enum class State { LOADING, PLAYING, OFFLINE, ENDED, FAILED, DECODER }
 
     private inner class Tile(var slug: String) {
         val frame = FrameLayout(this@MultiViewActivity)
@@ -53,6 +70,9 @@ class MultiViewActivity : FragmentActivity() {
         var player: ExoPlayer? = null
         var name = slug
         var retries = 0
+        var state = State.LOADING
+        /** When this tile last stopped working (offline, ended, failed), for [RECHECK_MS]. */
+        var since = 0L
 
         init {
             video.useController = false
@@ -63,6 +83,7 @@ class MultiViewActivity : FragmentActivity() {
             frame.addView(loader, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER))
             status.setTextColor(getColor(R.color.text_secondary))
             status.textSize = 15f
+            status.setPadding(dp(16), 0, dp(16), 0)
             status.font(AppFonts.Weight.REGULAR)
             status.gravity = Gravity.CENTER
             frame.addView(status, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -81,28 +102,59 @@ class MultiViewActivity : FragmentActivity() {
             frame.setOnClickListener { openFull(this) }
         }
 
+        /** The quality cap this tile plays at: smaller tiles need less. */
+        fun cap(): Int = when {
+            bigLayout && tiles.firstOrNull() === this -> 1080
+            bigLayout -> 360
+            tiles.size <= 2 -> 720
+            else -> 480
+        }
+
+        /** The other tiles changed (one added or removed, the layout switched): adjust the cap in place, without restarting. */
+        fun recap() {
+            player?.let { p ->
+                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setMaxVideoSize(Int.MAX_VALUE, cap()).build()
+            }
+        }
+
         fun start() {
             release()
+            state = State.LOADING
             loader.setVisible(true)
             status.text = ""
-            val p = PlayerFactory.create(this@MultiViewActivity, maxHeight = if (tiles.size <= 2) 720 else 480,
-                leveler = LoudnessLeveler(Prefs(this@MultiViewActivity).loudnessEq))
+            val lowLatency = Prefs(this@MultiViewActivity).lowLatency
+            // No audio focus: the tiles would only take it from each other.
+            val p = PlayerFactory.create(this@MultiViewActivity, maxHeight = cap(),
+                leveler = LoudnessLeveler(Prefs(this@MultiViewActivity).loudnessEq), audioFocus = false)
             player = p
             video.player = p
             p.volume = if (frame.hasFocus()) 1f else 0f
             p.addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(state: Int) {
-                    loader.setVisible(state == Player.STATE_BUFFERING)
-                    if (state == Player.STATE_READY) retries = 0
-                    if (state == Player.STATE_ENDED) showStatus("Stream ended")
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    loader.setVisible(playbackState == Player.STATE_BUFFERING)
+                    if (playbackState == Player.STATE_READY) {
+                        retries = 0
+                        state = State.PLAYING
+                        status.text = ""
+                    }
+                    if (playbackState == Player.STATE_ENDED) showStatus(State.ENDED, "Stream ended")
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
                     if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                         p.seekToDefaultPosition(); p.prepare(); return
                     }
+                    // The TV ran out of video decoders: retrying won't help while the others play.
+                    if (error.errorCode in 4000..4999 && tiles.count { it !== this@Tile && it.state == State.PLAYING } > 0) {
+                        release()
+                        val playing = tiles.count { it.state == State.PLAYING }
+                        decoderLimitSeen = playing
+                        return showStatus(State.DECODER,
+                            "Your TV can only play $playing ${if (playing == 1) "stream" else "streams"} at once\n" +
+                                "☰ to remove one, or OK to watch this one full screen")
+                    }
                     if (++retries <= 3) frame.postDelayed({ if (player === p) start() }, 2000L * retries)
-                    else showStatus("Playback problem")
+                    else showStatus(State.FAILED, "Playback problem\nTrying again in a minute")
                 }
             })
             lifecycleScope.launch {
@@ -111,15 +163,17 @@ class MultiViewActivity : FragmentActivity() {
                 name = c?.username ?: slug
                 updateLabel()
                 val url = c?.playbackUrl
-                if (c == null) return@launch showStatus("Couldn't load $slug")
-                if (!c.isLive || url == null) return@launch showStatus("${c.username} is offline")
-                p.setMediaItem(PlayerFactory.item(url, PlayerFactory.liveConfig(Prefs(this@MultiViewActivity).lowLatency)))
+                if (c == null) return@launch showStatus(State.FAILED, "Couldn't load $slug\nTrying again in a minute")
+                if (!c.isLive || url == null) return@launch showStatus(State.OFFLINE, "${c.username} is offline\nStarts by itself when they go live")
+                p.setMediaItem(PlayerFactory.item(url, PlayerFactory.liveConfig(lowLatency), lowLatency = lowLatency))
                 p.prepare()
                 p.play()
             }
         }
 
-        fun showStatus(text: String) {
+        fun showStatus(newState: State, text: String) {
+            state = newState
+            since = System.currentTimeMillis()
             loader.setVisible(false)
             status.text = text
         }
@@ -142,6 +196,20 @@ class MultiViewActivity : FragmentActivity() {
     private val tiles = ArrayList<Tile>()
     private val sheet by lazy { OptionSheet(this) }
     private var stopped = false
+    private lateinit var prefs: Prefs
+    /** One big stream (the first tile) with the others in a column beside it, instead of an even grid. */
+    private var bigLayout = false
+    /** Streams that played at once before the decoder ran out, if that happened here. */
+    private var decoderLimitSeen = 0
+
+    private val recheck = object : Runnable {
+        override fun run() {
+            val now = System.currentTimeMillis()
+            tiles.filter { it.state in setOf(State.OFFLINE, State.ENDED, State.FAILED) && now - it.since >= RECHECK_MS }
+                .forEach { it.retries = 0; it.start() }
+            grid.postDelayed(this, 15_000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -149,6 +217,8 @@ class MultiViewActivity : FragmentActivity() {
         window.setBackgroundDrawableResource(android.R.color.black)
         grid = FrameLayout(this).apply { keepScreenOn = true; setBackgroundColor(0xFF000000.toInt()) }
         setContentView(grid)
+        prefs = Prefs(this)
+        bigLayout = prefs.multiViewBig
         val slugs = intent.getStringArrayListExtra(EXTRA_SLUGS).orEmpty().distinctBy { it.lowercase() }.take(MAX_STREAMS)
         if (slugs.isEmpty()) return finish()
         slugs.forEach { addTile(it, focus = false) }
@@ -176,9 +246,11 @@ class MultiViewActivity : FragmentActivity() {
         tiles += tile
         grid.addView(tile.frame, 0)
         layoutTiles()
-        // Each new tile may lower everyone's quality cap, so (re)start them all.
-        tiles.forEach { it.start() }
+        // Only the new tile starts; the others keep playing and just take the new quality cap.
+        tile.start()
+        tiles.forEach { if (it !== tile) it.recap() }
         if (focus) tile.frame.requestFocus()
+        remember()
     }
 
     private fun removeTile(tile: Tile) {
@@ -188,16 +260,51 @@ class MultiViewActivity : FragmentActivity() {
         tiles.remove(tile)
         if (tiles.size == 1) return openFull(tiles[0])
         layoutTiles()
+        tiles.forEach { it.recap() }
+        // A decoder freed up: a tile that couldn't get one tries again.
+        tiles.filter { it.state == State.DECODER }.take(1).forEach { it.retries = 0; it.start() }
         tiles.getOrNull(idx.coerceAtMost(tiles.size - 1))?.frame?.requestFocus()
+        remember()
     }
 
-    /** Two side by side, three or four in a 2×2 grid, each 16:9 and centered. */
+    /** Saves the set (and layout) so the player can offer it again. */
+    private fun remember() {
+        prefs.lastMultiView = tiles.map { it.slug }
+        prefs.multiViewBig = bigLayout
+    }
+
+    /**
+     * Two side by side, three or four in a 2×2 grid, each 16:9 and centered; or, in the big
+     * layout, the first tile large on the left and the others stacked beside it.
+     */
     private fun layoutTiles() {
         grid.post {
             val w = grid.width
             val h = grid.height
             if (w == 0 || h == 0) return@post layoutTiles()
             val gap = dp(6)
+            if (bigLayout && tiles.size >= 2) {
+                val others = tiles.size - 1
+                // The side column: small tiles stacked, as wide as fits beside a 16:9 big tile.
+                val smallH = (h - gap * (others + 1)) / others.coerceAtLeast(3)
+                val smallW = smallH * 16 / 9
+                val bigW = minOf(w - smallW - gap * 3, (h - gap * 2) * 16 / 9)
+                val bigH = bigW * 9 / 16
+                val left = (w - (bigW + gap + smallW)) / 2
+                tiles.forEachIndexed { i, t ->
+                    t.frame.layoutParams = if (i == 0) {
+                        FrameLayout.LayoutParams(bigW, bigH).apply { leftMargin = left; topMargin = (h - bigH) / 2 }
+                    } else {
+                        val colH = smallH * others + gap * (others - 1)
+                        FrameLayout.LayoutParams(smallW, smallH).apply {
+                            leftMargin = left + bigW + gap
+                            topMargin = (h - colH) / 2 + (i - 1) * (smallH + gap)
+                        }
+                    }
+                }
+                grid.requestLayout()
+                return@post
+            }
             val cols = 2
             val rows = if (tiles.size <= 2) 1 else 2
             val cellW = minOf((w - gap * (cols + 1)) / cols, ((h - gap * (rows + 1)) / rows) * 16 / 9)
@@ -232,12 +339,29 @@ class MultiViewActivity : FragmentActivity() {
 
     private fun focusedTile() = tiles.firstOrNull { it.frame.hasFocus() } ?: tiles.firstOrNull()
 
+    /** Why adding another stream might not work on this TV, if there's reason to think so. */
+    private fun addWarning(): String? {
+        val limit = decoderLimitSeen.takeIf { it > 0 } ?: decoderLimit().takeIf { it in 1..3 }
+        return when {
+            limit != null && tiles.size >= limit -> "Your TV may only play $limit at once"
+            tiles.size >= 2 -> "More streams means lower quality for each"
+            else -> null
+        }
+    }
+
+    private fun setBigLayout(on: Boolean) {
+        bigLayout = on
+        layoutTiles()
+        tiles.forEach { it.recap() }
+        remember()
+    }
+
     private fun showMenu() {
         val tile = focusedTile() ?: return
         sheet.show(OptionSheet.Page("Multi-view", eyebrow = "${tiles.size} streams", subtitle = tile.name) {
             buildList {
                 if (tiles.size < MAX_STREAMS) {
-                    add(OptionSheet.Item("Add a stream", sub = if (tiles.size >= 2) "More streams means lower quality for each" else null,
+                    add(OptionSheet.Item("Add a stream", sub = addWarning(),
                         icon = R.drawable.ic_multiview, submenu = true) {
                         it.push(StreamPicker.page(this@MultiViewActivity, it, "Add a stream", exclude = tiles.map { t -> t.slug }.toSet()) { s ->
                             addTile(s.slug, focus = true)
@@ -253,6 +377,22 @@ class MultiViewActivity : FragmentActivity() {
                     })
                 })
                 add(OptionSheet.Item("Watch ${tile.name} full screen", icon = R.drawable.ic_play) { it.dismiss(); openFull(tile) })
+                if (bigLayout && tiles.firstOrNull() !== tile) {
+                    add(OptionSheet.Item("Make ${tile.name} the big one", icon = R.drawable.ic_layout) {
+                        it.dismiss()
+                        tiles.remove(tile)
+                        tiles.add(0, tile)
+                        setBigLayout(true)
+                        tile.frame.requestFocus()
+                    })
+                }
+                add(OptionSheet.Item("Layout", sub = if (bigLayout) "One big stream, the others beside it" else "All the same size",
+                    value = if (bigLayout) "One big" else "Grid", icon = R.drawable.ic_layout) {
+                    // The focused stream becomes the big one.
+                    if (!bigLayout && tiles.firstOrNull() !== tile) { tiles.remove(tile); tiles.add(0, tile) }
+                    setBigLayout(!bigLayout)
+                    it.refresh()
+                })
                 add(OptionSheet.Item(if (tiles.size > 2) "Remove ${tile.name}" else "Remove ${tile.name} (back to one stream)",
                     icon = R.drawable.ic_close) {
                     it.dismiss()
@@ -268,6 +408,8 @@ class MultiViewActivity : FragmentActivity() {
             stopped = false
             tiles.forEach { it.start() }
         }
+        grid.removeCallbacks(recheck)
+        grid.postDelayed(recheck, 15_000)
     }
 
     override fun onStop() {
@@ -275,6 +417,7 @@ class MultiViewActivity : FragmentActivity() {
         // Live streams can't usefully pause; start fresh at the live edge when we come back.
         tiles.forEach { it.release() }
         stopped = true
+        grid.removeCallbacks(recheck)
     }
 
     override fun onDestroy() {

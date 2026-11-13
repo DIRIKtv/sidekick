@@ -76,6 +76,15 @@ class PlayerActivity : FragmentActivity() {
 
         /** Channel playing right now, if any (so alerts don't announce what you're watching). */
         val currentSlug: String? get() = current?.get()?.takeIf { !it.isFinishing }?.slug
+
+        /** Picture size choices: key, label, what it does. */
+        val PICTURE_SIZES = listOf(
+            Triple("fit", "Fit", "The whole picture, with black bars if it doesn't match the screen"),
+            Triple("fill", "Stretch", "Stretched to fill the screen"),
+            Triple("zoom", "Zoom", "Fills the screen, cutting off the edges"),
+        )
+
+        private const val ACTION_PIP_PLAY_PAUSE = "com.diriktv.sidekick.PIP_PLAY_PAUSE"
     }
 
     /** LIVE = live playlist; DVR = the in-progress recording of a live stream; VOD = a past broadcast or clip. */
@@ -179,12 +188,84 @@ class PlayerActivity : FragmentActivity() {
         menu = PlayerMenu(this)
         controls = PlayerControls(this)
         chat = ChatController(this)
+        // A player handed over from a preview already has its tracks: apply the caption choice now.
+        applyCaptionPreference()
 
         if (!readIntent(intent)) return finish()
         com.diriktv.sidekick.data.PhoneChat.attach(this)
         phoneAttached = true
+        startSession()
+        if (canPip) androidx.core.content.ContextCompat.registerReceiver(this, pipReceiver,
+            android.content.IntentFilter(ACTION_PIP_PLAY_PAUSE), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         begin()
     }
+
+    // region media session
+
+    private var session: androidx.media3.session.MediaSession? = null
+
+    /**
+     * A media session, so the TV knows what's playing: voice commands ("pause", "rewind 30
+     * seconds"), transport keys sent over HDMI-CEC and the system's Now Playing card. Commands go
+     * through the same paths as the remote (rewinding a live stream into its recording, for one).
+     */
+    private fun startSession() {
+        session = runCatching {
+            androidx.media3.session.MediaSession.Builder(this, SessionPlayer())
+                // Unique per player: the one being replaced may not be gone yet.
+                .setId("sidekick-player-${System.nanoTime()}")
+                .build()
+        }.getOrNull()
+    }
+
+    private inner class SessionPlayer : androidx.media3.common.ForwardingPlayer(player) {
+        override fun play() { if (!player.playWhenReady || player.playbackState == Player.STATE_IDLE) togglePlayPause() }
+        override fun pause() { if (player.playWhenReady) togglePlayPause() }
+        override fun setPlayWhenReady(playWhenReady: Boolean) = if (playWhenReady) play() else pause()
+        override fun stop() = finish()
+        override fun seekTo(positionMs: Long) = queueSeek(positionMs - player.currentPosition, 0)
+        override fun seekBack() = queueSeek(-seekStep(), 0)
+        override fun seekForward() = queueSeek(seekStep(), 0)
+        override fun seekToNext() = skip(1)
+        override fun seekToNextMediaItem() = skip(1)
+        override fun seekToPrevious() = skip(-1)
+        override fun seekToPreviousMediaItem() = skip(-1)
+        override fun hasNextMediaItem() = true
+        override fun hasPreviousMediaItem() = mode != Mode.VOD
+        override fun isCommandAvailable(command: Int) = command in extraCommands || super.isCommandAvailable(command)
+        override fun getAvailableCommands(): Player.Commands =
+            super.getAvailableCommands().buildUpon().addAll(*extraCommands.toIntArray()).build()
+    }
+
+    /** Next and previous: another live followed channel, or the next clip in the row. */
+    private val extraCommands = listOf(
+        Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+        Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+        Player.COMMAND_SEEK_BACK, Player.COMMAND_SEEK_FORWARD,
+    )
+
+    /** What the session (and the Now Playing card) shows for the current stream. */
+    private fun metadata(): androidx.media3.common.MediaMetadata {
+        val c = channel
+        val title = if (mode == Mode.VOD) vodTitle?.takeIf { it.isNotBlank() } else c?.liveTitle?.takeIf { it.isNotBlank() }
+        val art = (if (mode == Mode.VOD) intent.getStringExtra(EXTRA_VOD_THUMB) else c?.liveThumbnail) ?: c?.avatar
+        return androidx.media3.common.MediaMetadata.Builder()
+            .setTitle(title ?: c?.username ?: slug)
+            .setArtist(c?.username ?: slug)
+            .setArtworkUri(art?.let { android.net.Uri.parse(it) })
+            .setIsPlayable(true)
+            .build()
+    }
+
+    /** The channel loaded (or changed): bring the session's title and picture up to date, without interrupting playback. */
+    private fun refreshMetadata() {
+        val item = player.currentMediaItem ?: return
+        val m = metadata()
+        if (item.mediaMetadata.title == m.title && item.mediaMetadata.artist == m.artist) return
+        runCatching { player.replaceMediaItem(player.currentMediaItemIndex, item.buildUpon().setMediaMetadata(m).build()) }
+    }
+
+    // endregion
 
     private var phoneAttached = false
 
@@ -204,6 +285,7 @@ class PlayerActivity : FragmentActivity() {
         setIntent(intent)
         // Anything still scheduled for the previous stream mustn't touch the new one.
         ui.removeCallbacks(retryRunnable)
+        ui.removeCallbacks(streamEnded)
         raidJump?.let { ui.removeCallbacks(it) }
         raidJump = null
         stalledSince = 0
@@ -215,6 +297,8 @@ class PlayerActivity : FragmentActivity() {
                 .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE).clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
         }
         endCard.hide()
+        upNext?.hide()
+        liveRail?.hide()
         captions.reset()
         lastRaid = null
         chat.reset()
@@ -285,6 +369,7 @@ class PlayerActivity : FragmentActivity() {
         }
         ui.removeCallbacks(ticker)
         ui.removeCallbacks(retryRunnable)
+        ui.removeCallbacks(streamEnded)
         raidJump?.let { ui.removeCallbacks(it) }
         raidJump = null
         stalledSince = 0
@@ -299,6 +384,10 @@ class PlayerActivity : FragmentActivity() {
         ui.removeCallbacksAndMessages(null)
         sleepTimer.cancel()
         chat.close()
+        chat.adapter.stopAnimations()
+        session?.release()
+        session = null
+        if (canPip) runCatching { unregisterReceiver(pipReceiver) }
         player.release()
         if (phoneAttached) com.diriktv.sidekick.data.PhoneChat.detach()
     }
@@ -311,14 +400,58 @@ class PlayerActivity : FragmentActivity() {
         if (!canPip || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         menu.dismiss()
         controls.hide()
-        val params = PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-        return runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
+        liveRail?.hide()
+        return runCatching { enterPictureInPictureMode(pipParams()) }.getOrDefault(false)
+    }
+
+    /** Leaving with Home shrinks the stream into a corner when it's playing (Settings → Playback). */
+    private val wantsAutoPip get() = prefs.autoPip && !isFinishing && player.isPlaying && errorView.visibility != View.VISIBLE
+
+    /**
+     * The corner window's shape (the video's own, within what Android allows), its play/pause
+     * button, and on Android 12+ whether Home should shrink into it by itself (smoother than
+     * entering from [onUserLeaveHint]).
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
+    private fun pipParams(): PictureInPictureParams {
+        val v = player.videoSize
+        val ratio = if (v.width > 0 && v.height > 0) {
+            val r = (v.width * v.pixelWidthHeightRatio / v.height).coerceIn(1 / 2.39f, 2.39f)
+            Rational((r * 1000).toInt(), 1000)
+        } else Rational(16, 9)
+        val playing = player.playWhenReady
+        val action = android.app.RemoteAction(
+            android.graphics.drawable.Icon.createWithResource(this, if (playing) R.drawable.ic_pause else R.drawable.ic_play),
+            if (playing) "Pause" else "Play", if (playing) "Pause" else "Play",
+            android.app.PendingIntent.getBroadcast(this, 0, Intent(ACTION_PIP_PLAY_PAUSE).setPackage(packageName),
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT),
+        )
+        return PictureInPictureParams.Builder()
+            .setAspectRatio(ratio)
+            .setActions(listOf(action))
+            .apply { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setAutoEnterEnabled(wantsAutoPip) }
+            .build()
+    }
+
+    /** Keeps the corner window's shape, button and auto-enter in step with playback. */
+    private fun updatePip() {
+        if (!canPip || Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isFinishing) return
+        runCatching { setPictureInPictureParams(pipParams()) }
+    }
+
+    /** The corner window's play/pause button. */
+    private val pipReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) {
+            if (intent.action == ACTION_PIP_PLAY_PAUSE) togglePlayPause()
+        }
     }
 
     /** Home while watching shrinks the stream into a corner instead of stopping it. */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (prefs.autoPip && !isFinishing && player.isPlaying && errorView.visibility != View.VISIBLE) enterPip()
+        // Android 12+ does this itself (see pipParams), without the jump.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
+        if (wantsAutoPip) enterPip()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
@@ -327,6 +460,7 @@ class PlayerActivity : FragmentActivity() {
         if (inPip) {
             controls.hide()
             controls.hideOsd()
+            liveRail?.hide()
             stats.setVisible(false)
         } else if (lifecycle.currentState == Lifecycle.State.CREATED) {
             // The corner window was closed rather than expanded.
@@ -356,6 +490,23 @@ class PlayerActivity : FragmentActivity() {
         errorSecondary = findViewById(R.id.errorSecondary)
         retryButton.focusZoom(1.05f)
         errorSecondary.focusZoom(1.05f)
+        applyPictureSize()
+    }
+
+    private fun applyPictureSize() {
+        playerView.resizeMode = when (prefs.pictureSize) {
+            "fill" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+            "zoom" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+    }
+
+    internal fun pictureSizeLabel() = PICTURE_SIZES.firstOrNull { it.first == prefs.pictureSize }?.second ?: "Fit"
+
+    internal fun setPictureSize(key: String) {
+        prefs.pictureSize = key
+        applyPictureSize()
+        controls.flashOsd("Picture size: ${pictureSizeLabel()}", R.drawable.ic_tv)
     }
 
     /** True while the player is one handed over from a Home preview, already playing this stream. */
@@ -368,6 +519,8 @@ class PlayerActivity : FragmentActivity() {
             adopted = true
             leveler = handoff.leveler.also { it.enabled = prefs.loudnessEq }
             player = handoff.player
+            // From a muted preview to the real thing: the full buffer, and audio focus.
+            PlayerFactory.promote(player)
             player.volume = 1f
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                 .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE).build()
@@ -392,10 +545,22 @@ class PlayerActivity : FragmentActivity() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 controls.updatePlayButton()
                 if (controls.up) controls.scheduleHide()
+                updatePip()
             }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // Another app took the sound (or it came back): say why it paused.
+                if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS && !playWhenReady && !inPip) {
+                    controls.flashOsd("Paused: another app is playing sound", R.drawable.ic_pause, 3000)
+                }
+                updatePip()
+            }
+
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) = updatePip()
 
             override fun onTracksChanged(tracks: Tracks) {
                 menu.applyQualityPreference()
+                applyCaptionPreference()
                 controls.updateCaptionButton()
             }
 
@@ -406,6 +571,35 @@ class PlayerActivity : FragmentActivity() {
                 droppedFrames += count
             }
         })
+    }
+
+    /**
+     * Captions on or off as last chosen in the menu, in the language last picked; until the
+     * viewer chooses, they follow the TV's own captions setting.
+     */
+    private fun applyCaptionPreference() {
+        val tracks = menu.textTracks()
+        if (tracks.isEmpty()) return
+        val cm = getSystemService(CAPTIONING_SERVICE) as? android.view.accessibility.CaptioningManager
+        val want = prefs.captionsOn ?: (cm?.isEnabled == true)
+        val params = player.trackSelectionParameters
+        val disabled = params.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        if (!want) {
+            if (!disabled) player.trackSelectionParameters = params.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            return
+        }
+        val lang = prefs.captionLanguage ?: cm?.locale?.language
+        fun matches(f: androidx.media3.common.Format) = lang != null &&
+            (f.language.equals(lang, true) || f.label.equals(lang, true) || f.language?.substringBefore('-').equals(lang.substringBefore('-'), true))
+        val pick = tracks.firstOrNull { matches(it.format) } ?: tracks.first()
+        val chosen = params.overrides[pick.group.mediaTrackGroup]?.trackIndices == listOf(pick.index)
+        if (!disabled && chosen) return
+        player.trackSelectionParameters = params.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(androidx.media3.common.TrackSelectionOverride(pick.group.mediaTrackGroup, pick.index))
+            .build()
     }
 
     // endregion
@@ -464,10 +658,11 @@ class PlayerActivity : FragmentActivity() {
             menu.applyQualityPreference()
             setSpeed(1f)
             player.play()
+            refreshMetadata()
             updateModeUi()
             return
         }
-        player.setMediaItem(PlayerFactory.item(url, PlayerFactory.liveConfig(prefs.lowLatency)))
+        player.setMediaItem(PlayerFactory.item(url, PlayerFactory.liveConfig(prefs.lowLatency), metadata(), lowLatency = prefs.lowLatency))
         setSpeed(1f)
         player.prepare()
         player.play()
@@ -491,7 +686,7 @@ class PlayerActivity : FragmentActivity() {
             dvrSource = src
             mode = Mode.DVR
             livePausedAt = 0
-            player.setMediaItem(PlayerFactory.item(src), positionMs)
+            player.setMediaItem(PlayerFactory.item(src, metadata = metadata()), positionMs)
             player.prepare()
             player.play()
             updateModeUi()
@@ -514,7 +709,7 @@ class PlayerActivity : FragmentActivity() {
     private fun playVod() {
         val url = vodUrl ?: return
         val resume = vodUuid?.let { prefs.vodPosition(it) } ?: 0L
-        player.setMediaItem(PlayerFactory.item(url), resume)
+        player.setMediaItem(PlayerFactory.item(url, metadata = metadata()), resume)
         player.prepare()
         updateModeUi()
         // Part-way through a past broadcast: ask whether to pick up there or start over.
@@ -560,6 +755,7 @@ class PlayerActivity : FragmentActivity() {
     private fun onChannel(c: ChannelInfo) {
         chat.setSubscriberBadges(c)
         controls.bindHeader()
+        refreshMetadata()
     }
 
     /** VODs and clips go in the watch history (and VODs on the TV's Continue watching row). */
@@ -770,7 +966,10 @@ class PlayerActivity : FragmentActivity() {
             }
             Mode.VOD -> {
                 vodUuid?.let { prefs.saveVodPosition(it, 0) }
-                if (!sleepTimer.onVideoEnded()) controls.show()
+                if (sleepTimer.onVideoEnded()) return
+                // A clip carries on with the next one from the row it came from.
+                val next = if (isClip && !inPip) Nav.clipAfter(clipId) else null
+                if (next != null) upNext().show(next) else controls.show()
             }
             Mode.LIVE -> loadChannel(connectChat = false)
         }
@@ -857,7 +1056,33 @@ class PlayerActivity : FragmentActivity() {
      */
     private fun showEnded(ended: Boolean) {
         controls.hide()
+        liveRail?.hide()
+        // The sleep timer was waiting for this.
+        if (ended && sleepTimer.onStreamEnded()) return
         if (inPip) showOfflineNote(ended) else endCard.show(ended, lastRaid)
+    }
+
+    /**
+     * Chat heard the broadcast end. The picture runs a few seconds behind live, so the end card
+     * comes up once those last seconds have played, rather than whenever the player runs dry or
+     * the next channel check (up to a minute) notices.
+     */
+    internal fun onStreamEnded() {
+        if (mode != Mode.LIVE || isFinishing || endCard.showing) return
+        lastChannelRefresh = System.currentTimeMillis()
+        val behind = player.currentLiveOffset.takeIf { it != C.TIME_UNSET && player.isPlaying } ?: 0L
+        ui.removeCallbacks(streamEnded)
+        ui.postDelayed(streamEnded, behind.coerceIn(0, 15_000))
+    }
+
+    private val streamEnded = Runnable {
+        if (mode != Mode.LIVE || isFinishing || endCard.showing) return@Runnable
+        ui.removeCallbacks(retryRunnable)
+        player.stop()
+        buffering.setVisible(false)
+        errorView.setVisible(false)
+        channel = channel?.copy(isLive = false)
+        showEnded(ended = true)
     }
 
     /** The small note left behind when the end card is dismissed (or there's no room for it). */
@@ -900,7 +1125,9 @@ class PlayerActivity : FragmentActivity() {
         }
         if (errorView.visibility != View.VISIBLE) errorView.fadeIn(220, fromY = dp(10).toFloat())
         errorView.setVisible(true)
+        liveRail?.hide()
         retryButton.requestFocus()
+        updatePip()
     }
 
     private fun saveVodPosition(updateHomeScreen: Boolean = false) {
@@ -920,12 +1147,37 @@ class PlayerActivity : FragmentActivity() {
 
     // region sleep timer
 
+    private var sleepSheet: OptionSheet? = null
+
+    /** A minute to go: offer more time (if nobody answers, it stops as planned). */
     private fun onSleepWarning() {
-        controls.flashOsd("Sleep timer: stopping in 1 minute", R.drawable.ic_timer, 4000)
+        if (inPip) return controls.flashOsd("Sleep timer: stopping in 1 minute", R.drawable.ic_timer, 4000)
+        controls.cancelHide()
+        sleepSheet = OptionSheet(this).apply {
+            show(OptionSheet.Page("Still watching?", eyebrow = "Sleep timer", subtitle = "Playback stops in 1 minute.") {
+                listOf(
+                    OptionSheet.Item("Keep watching 15 more minutes", icon = R.drawable.ic_timer) {
+                        sleepTimer.extend(15)
+                        controls.updateMeta()
+                        controls.flashOsd("Sleep timer: ${sleepTimer.label()}", R.drawable.ic_timer)
+                        it.dismiss()
+                    },
+                    OptionSheet.Item("Turn the sleep timer off", icon = R.drawable.ic_close) {
+                        sleepTimer.cancel()
+                        controls.updateMeta()
+                        controls.flashOsd("Sleep timer off", R.drawable.ic_timer)
+                        it.dismiss()
+                    },
+                    OptionSheet.Item("Stop in a minute", icon = R.drawable.ic_pause) { it.dismiss() },
+                )
+            })
+        }
     }
 
     /** Stop playback and let the screen turn off; one press brings it back. */
     private fun onSleepTimer() {
+        sleepSheet?.dismiss()
+        sleepSheet = null
         saveVodPosition()
         player.pause()
         if (mode == Mode.LIVE) player.stop()
@@ -1006,6 +1258,45 @@ class PlayerActivity : FragmentActivity() {
 
     internal val layoutEditor by lazy { ChatLayoutEditor(this) }
 
+    /** ▼ while watching: the live followed channels, to switch to one. Made on first use. */
+    private var liveRail: LiveRail? = null
+    private fun liveRail() = liveRail ?: LiveRail(this, findViewById(R.id.stage)).also { liveRail = it }
+
+    /** The next clip, when one finishes. Made on first use. */
+    private var upNext: ClipUpNext? = null
+    private fun upNext() = upNext ?: ClipUpNext(this, findViewById(R.id.stage)).also { upNext = it }
+
+    private var zapJob: Job? = null
+
+    /**
+     * CH+/CH− and next/previous: the next (or previous) live channel you follow, in the order
+     * Following lists them; on a clip, the next clip from its row.
+     */
+    private fun skip(step: Int) {
+        if (mode == Mode.VOD) {
+            val next = if (isClip && step > 0) Nav.clipAfter(clipId) else null
+            if (next != null) { upNext?.hide(); Nav.watchClip(this, next) }
+            return
+        }
+        zapJob?.cancel()
+        zapJob = lifecycleScope.launch {
+            val live = runCatching { Follows.liveNow(this@PlayerActivity) }.getOrNull()
+            if (live == null) return@launch controls.flashOsd("Couldn't check who's live", R.drawable.ic_info)
+            val i = live.indexOfFirst { it.slug.equals(slug, true) }
+            val others = live.filterNot { it.slug.equals(slug, true) }
+            if (others.isEmpty()) return@launch controls.flashOsd("Nobody else you follow is live", R.drawable.ic_info, 2500)
+            val target = if (i < 0) (if (step > 0) live.first() else live.last()) else live[(i + step).mod(live.size)]
+            controls.flashOsd(target.username, if (step > 0) R.drawable.ic_forward else R.drawable.ic_replay)
+            Nav.watchLive(this@PlayerActivity, target.slug)
+        }
+    }
+
+    /** Keys the ▼ rail moves around with, rather than the player's own uses of them. */
+    private val railKeys = setOf(
+        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+    )
+
     // Overriding Activity.dispatchKeyEvent is standard; lint trips on AndroidX's restricted override of it.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -1014,6 +1305,17 @@ class PlayerActivity : FragmentActivity() {
         if (endCard.showing) {
             if (event.action == KeyEvent.ACTION_DOWN) endCard.onKey()
             return super.dispatchKeyEvent(event)
+        }
+        liveRail?.takeIf { it.showing && event.keyCode in railKeys }?.let { rail ->
+            if (rail.onKey(event)) return true
+            return super.dispatchKeyEvent(event)
+        }
+        upNext?.takeIf { it.showing }?.let { card ->
+            val ok = event.keyCode in setOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)
+            if (ok) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) card.play()
+                return true
+            }
         }
         if (event.action == KeyEvent.ACTION_DOWN) {
             val controlsShown = controls.up
@@ -1047,14 +1349,32 @@ class PlayerActivity : FragmentActivity() {
                     if (menu.textTracks().isNotEmpty()) menu.show(menu.captionsPage())
                     return true
                 }
+                KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                    if (event.repeatCount == 0) skip(1)
+                    return true
+                }
+                KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                    if (event.repeatCount == 0) skip(-1)
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_STOP -> {
+                    // Stop means done watching: leave the player (a past broadcast keeps its place).
+                    if (event.repeatCount == 0) finish()
+                    return true
+                }
             }
             if (!controlsShown && !errorShown) {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> { queueSeek(-seekStep(), event.repeatCount); return true }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> { queueSeek(seekStep(), event.repeatCount); return true }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
-                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    KeyEvent.KEYCODE_DPAD_UP -> {
                         if (event.repeatCount == 0) controls.show()
+                        return true
+                    }
+                    // ▼ brings up the live channels you follow, to switch to one.
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (event.repeatCount == 0) liveRail().show()
                         return true
                     }
                 }
@@ -1081,6 +1401,8 @@ class PlayerActivity : FragmentActivity() {
             endCard.stay()
             return
         }
+        liveRail?.takeIf { it.showing }?.let { it.hide(); return }
+        upNext?.takeIf { it.showing }?.let { it.hide(); controls.show(); return }
         when {
             pendingSeek != null -> commitPendingSeek()
             controls.up -> controls.hide()

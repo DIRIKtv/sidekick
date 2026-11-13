@@ -28,11 +28,38 @@ internal class Captions(private val act: PlayerActivity, private val view: TextV
     private val fade = Runnable { fadeOut() }
 
     init {
-        val scale = (act.getSystemService(android.content.Context.CAPTIONING_SERVICE) as? CaptioningManager)?.fontScale ?: 1f
-        view.textSize = 22f * scale
+        val cm = act.getSystemService(android.content.Context.CAPTIONING_SERVICE) as? CaptioningManager
+        view.textSize = 22f * (cm?.fontScale ?: 1f)
         view.font(AppFonts.Weight.MEDIUM)
         view.maxLines = 2
         view.setLineSpacing(act.dp(2).toFloat(), 1f)
+        // Wrap the way fitted() measures, so two lines there are two lines on screen.
+        // (Layout's constant is the same value as LineBreaker's, which is Android 10+.)
+        @android.annotation.SuppressLint("WrongConstant")
+        view.breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+        // Captions turned on in the TV's settings come in the style picked there too.
+        if (cm?.isEnabled == true) applyStyle(cm.userStyle)
+    }
+
+    /** The TV's caption style (Settings → Accessibility → Captions): colours, edges and typeface. */
+    private fun applyStyle(style: CaptioningManager.CaptionStyle) {
+        val s = androidx.media3.ui.CaptionStyleCompat.createFromCaptionStyle(style)
+        view.setTextColor(s.foregroundColor)
+        // The box behind the text: the window colour, else the background colour, if either shows.
+        val box = listOf(s.windowColor, s.backgroundColor).firstOrNull { android.graphics.Color.alpha(it) > 0 }
+        view.background = if (box == null) null else android.graphics.drawable.GradientDrawable().apply {
+            setColor(box)
+            cornerRadius = act.dp(10).toFloat()
+        }
+        val edge = s.edgeColor
+        when (s.edgeType) {
+            androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE -> view.setShadowLayer(3f, 0f, 0f, edge)
+            androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW -> view.setShadowLayer(4f, 2f, 2f, edge)
+            androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_RAISED -> view.setShadowLayer(1f, -1f, -1f, edge)
+            androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DEPRESSED -> view.setShadowLayer(1f, 1f, 1f, edge)
+            else -> view.setShadowLayer(0f, 0f, 0f, 0)
+        }
+        s.typeface?.let { view.typeface = it }
     }
 
     override fun onCues(cueGroup: CueGroup) {
@@ -92,19 +119,22 @@ internal class Captions(private val act: PlayerActivity, private val view: TextV
         }
     }
 
-    /** The newest words that fit in two lines (older ones scroll off the top, as on TV). */
+    /**
+     * The newest words that fit in two lines (older ones scroll off the top, as on TV). Laid out
+     * once, then cut where the second-last line starts: wrapping is greedy, so the last two lines
+     * break the same way on their own.
+     */
+    @android.annotation.SuppressLint("WrongConstant") // Layout.BREAK_STRATEGY_SIMPLE == LineBreaker's
     private fun fitted(): String {
         val stage = (view.parent as? View)?.width ?: 0
         val room = minOf(view.maxWidth, stage - act.dp(96)) - view.paddingLeft - view.paddingRight
+        val text = words.joinToString(" ")
         if (room <= 0) return words.takeLast(12).joinToString(" ")
-        var from = words.size
-        while (from > 0) {
-            val text = words.subList(from - 1, words.size).joinToString(" ")
-            val lines = android.text.StaticLayout.Builder.obtain(text, 0, text.length, view.paint, room).build().lineCount
-            if (lines > 2) break
-            from--
-        }
-        return words.subList(from, words.size).joinToString(" ")
+        val layout = android.text.StaticLayout.Builder.obtain(text, 0, text.length, view.paint, room)
+            .setBreakStrategy(android.text.Layout.BREAK_STRATEGY_SIMPLE)
+            .build()
+        if (layout.lineCount <= 2) return text
+        return text.substring(layout.getLineStart(layout.lineCount - 2)).trim()
     }
 
     private fun fadeOut() {

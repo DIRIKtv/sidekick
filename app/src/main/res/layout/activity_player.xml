@@ -510,6 +510,24 @@
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
 
+        <!-- Chat's restrictions, when there are any: slow mode, followers-only… -->
+        <TextView
+            android:id="@+id/chatModes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="-4dp"
+            android:drawableStart="@drawable/ic_timer"
+            android:drawablePadding="6dp"
+            android:drawableTint="@color/text_secondary"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="8dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
         <!-- The channel's pinned message -->
         <TextView
             android:id="@+id/chatPinned"

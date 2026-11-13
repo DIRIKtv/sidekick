@@ -21,7 +21,84 @@ data class ChatMessage(
     /** Image URLs of the global badges the sender chose to show (events, achievements). */
     val badgeImages: List<String> = emptyList(),
     val receivedAt: Long = System.currentTimeMillis(),
+    /** For a reply: who and what it answers. */
+    val replyTo: String? = null,
+    val replyText: String? = null,
 )
+
+/** Chat's restrictions, as Kick reports them for the chatroom. */
+data class ChatModes(
+    val slowSeconds: Int = 0,
+    val followersOnly: Boolean = false,
+    /** Minutes someone must have followed for, in followers-only mode. */
+    val followMinutes: Int = 0,
+    val subsOnly: Boolean = false,
+    val emotesOnly: Boolean = false,
+) {
+    /** "Slow mode 10s • Followers only (10 min)", or null when chat is open to everyone. */
+    fun describe(): String? = listOfNotNull(
+        if (slowSeconds > 0) "Slow mode ${slowSeconds}s" else null,
+        if (followersOnly) "Followers only" + if (followMinutes > 0) " (${followMinutes} min)" else "" else null,
+        if (subsOnly) "Subscribers only" else null,
+        if (emotesOnly) "Emotes only" else null,
+    ).joinToString("  •  ").ifEmpty { null }
+}
+
+/** Chat modes from a chatroom object (the channel API's "chatroom", or a ChatroomUpdatedEvent). */
+fun parseChatModes(o: JSONObject): ChatModes {
+    fun mode(key: String) = o.optJSONObject(key)
+    val slow = mode("slow_mode")
+    val followers = mode("followers_mode")
+    return ChatModes(
+        slowSeconds = when {
+            slow != null -> if (slow.optBoolean("enabled")) slow.optInt("message_interval") else 0
+            o.optBoolean("slow_mode") -> o.optInt("message_interval")
+            else -> 0
+        },
+        followersOnly = followers?.optBoolean("enabled") ?: o.optBoolean("followers_mode"),
+        followMinutes = followers?.optInt("min_duration") ?: o.optInt("following_min_duration"),
+        subsOnly = mode("subscribers_mode")?.optBoolean("enabled") ?: o.optBoolean("subscribers_mode"),
+        emotesOnly = mode("emotes_mode")?.optBoolean("enabled") ?: o.optBoolean("emotes_mode"),
+    )
+}
+
+/** Something that happened in chat other than a message, as a line for chat to show. */
+data class ChatEvent(val text: String)
+
+/** "x was banned" / "x was timed out for 10 minutes", from a UserBannedEvent. Returns the user and the line. */
+fun parseBan(data: JSONObject): Pair<String, String>? {
+    val user = data.optJSONObject("user")?.optStringOrNull("username") ?: return null
+    val minutes = data.optInt("duration")
+    val permanent = data.optBoolean("permanent") || minutes <= 0
+    val text = if (permanent) "$user was banned" else "$user was timed out for ${BanLength.of(minutes)}"
+    return user to text
+}
+
+private object BanLength {
+    fun of(m: Int) = when {
+        m % 1440 == 0 -> "${m / 1440} day" + if (m / 1440 != 1) "s" else ""
+        m % 60 == 0 -> "${m / 60} hour" + if (m / 60 != 1) "s" else ""
+        else -> "$m minute" + if (m != 1) "s" else ""
+    }
+}
+
+/** A line for a subscription, gifted subs or a host, or null for anything else. */
+fun parseChatEvent(event: String, data: JSONObject): ChatEvent? = when (event) {
+    "App\\Events\\SubscriptionEvent" -> data.optStringOrNull("username")?.let { u ->
+        val months = data.optInt("months")
+        ChatEvent(if (months > 1) "$u subscribed for $months months" else "$u subscribed")
+    }
+    "App\\Events\\GiftedSubscriptionsEvent" -> {
+        val gifter = data.optStringOrNull("gifter_username") ?: "Someone"
+        val n = data.optJSONArray("gifted_usernames")?.length() ?: 0
+        if (n <= 0) null else ChatEvent(if (n == 1) "$gifter gifted a sub to ${data.getJSONArray("gifted_usernames").optString(0)}" else "$gifter gifted $n subs")
+    }
+    "App\\Events\\StreamHostEvent" -> data.optStringOrNull("host_username")?.let { h ->
+        val n = data.optInt("number_viewers")
+        ChatEvent(if (n > 0) "$h is hosting with $n viewers" else "$h is hosting")
+    }
+    else -> null
+}
 
 /** A poll or prediction shown above chat. Option amounts are votes (polls) or points (predictions). */
 data class ChatPoll(
@@ -80,7 +157,14 @@ fun parseChatMessage(data: JSONObject): ChatMessage? {
             if (b.optBoolean("selected")) b.optStringOrNull("image_url")?.let { images += it }
         }
     }
+    // The message a reply answers; Kick sends metadata as an object, or as JSON in a string.
+    val meta = data.optJSONObject("metadata")
+        ?: data.optStringOrNull("metadata")?.let { runCatching { JSONObject(it) }.getOrNull() }
+    val replyTo = meta?.optJSONObject("original_sender")?.optStringOrNull("username")
+    val replyText = meta?.optJSONObject("original_message")?.optStringOrNull("content")
     return ChatMessage(
+        replyTo = replyTo,
+        replyText = replyText?.takeIf { replyTo != null },
         id = data.optString("id"),
         username = sender.optString("username"),
         color = identity?.optStringOrNull("color"),
@@ -121,11 +205,31 @@ class ChatClient(
     private val onPinned: (ChatMessage?) -> Unit = {},
     /** A poll started or its results changed; null when it ended. */
     private val onPoll: (ChatPoll?) -> Unit = {},
+    /** A user was banned or timed out: their name, and a line saying so. */
+    private val onBan: (String, String) -> Unit = { _, _ -> },
+    /** A moderator cleared chat. */
+    private val onCleared: () -> Unit = {},
+    /** A sub, gifted subs or a host. */
+    private val onEvent: (ChatEvent) -> Unit = {},
+    /** Slow, followers-only, subscribers-only or emotes-only mode changed. */
+    private val onModes: (ChatModes) -> Unit = {},
+    /** The broadcast ended. */
+    private val onStreamEnded: () -> Unit = {},
+    /** Something about a prediction changed (its details come from the API). */
+    private val onPrediction: () -> Unit = {},
+    /** Back after an outage: messages may have been missed meanwhile. */
+    private val onReconnected: () -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
-    private var socket: WebSocket? = null
-    private var closed = false
-    private var retries = 0
+    // Touched from OkHttp's socket thread and the main thread.
+    @Volatile private var socket: WebSocket? = null
+    @Volatile private var closed = false
+    @Volatile private var retries = 0
+
+    /** Runs [block] on the main thread, unless the client was closed before it gets there. */
+    private fun post(block: () -> Unit) {
+        main.post { if (!closed) block() }
+    }
 
     fun connect() {
         if (closed) return
@@ -144,17 +248,20 @@ class ChatClient(
 
     /** Set once "reconnecting" has been said for the current outage; cleared when chat is back. */
     @Volatile private var announcedOutage = false
+    /** Lost the connection at least once since the last subscription: fetch what was missed. */
+    @Volatile private var wasDown = false
 
     private fun reconnect() {
         if (closed) return
         // One line per outage, not one per failed attempt.
         if (!announcedOutage) {
             announcedOutage = true
-            main.post { onStatus("Chat disconnected, reconnecting…") }
+            post { onStatus("Chat disconnected, reconnecting…") }
         }
         val delay = (1000L shl retries.coerceAtMost(5)).coerceAtMost(30_000L)
         retries++
         main.postDelayed({ connect() }, delay)
+        wasDown = true
     }
 
     private fun handle(ws: WebSocket, text: String) {
@@ -162,7 +269,9 @@ class ChatClient(
         when (msg.optString("event")) {
             "pusher:connection_established" -> {
                 retries = 0
-                val channels = listOf("chatrooms.$chatroomId.v2") + (if (channelId > 0) listOf("channel.$channelId") else emptyList())
+                // Predictions have a channel of their own; their events only prompt a fresh look-up.
+                val channels = listOf("chatrooms.$chatroomId.v2") +
+                    (if (channelId > 0) listOf("channel.$channelId", "predictions-channel-$channelId") else emptyList())
                 for (name in channels) {
                     val sub = JSONObject()
                         .put("event", "pusher:subscribe")
@@ -173,36 +282,57 @@ class ChatClient(
             "pusher_internal:subscription_succeeded" ->
                 if (msg.optString("channel").startsWith("chatrooms.")) {
                     announcedOutage = false
-                    main.post { onStatus("Connected to chat") }
+                    val missed = wasDown
+                    wasDown = false
+                    post { onStatus("Connected to chat") }
+                    if (missed) post { onReconnected() }
                 }
             "pusher:ping" -> ws.send("""{"event":"pusher:pong","data":{}}""")
             "App\\Events\\ChatMessageEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
                 val chat = parseChatMessage(data)?.copy(receivedAt = System.currentTimeMillis()) ?: return
-                main.post { onMessage(chat) }
+                post { onMessage(chat) }
             }
             "App\\Events\\PinnedMessageCreatedEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
                 val pinned = data.optJSONObject("message")?.let { parseChatMessage(it) } ?: return
-                main.post { onPinned(pinned) }
+                post { onPinned(pinned) }
             }
-            "App\\Events\\PinnedMessageDeletedEvent" -> main.post { onPinned(null) }
+            "App\\Events\\PinnedMessageDeletedEvent" -> post { onPinned(null) }
             "App\\Events\\PollUpdateEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
                 val poll = data.optJSONObject("poll")?.let { parsePoll(it) } ?: return
-                main.post { onPoll(poll) }
+                post { onPoll(poll) }
             }
-            "App\\Events\\PollDeleteEvent" -> main.post { onPoll(null) }
+            "App\\Events\\PollDeleteEvent" -> post { onPoll(null) }
             "App\\Events\\ChatMoveToSupportedChannelEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
                 val target = parseRaid(data) ?: return
-                main.post { onRaid(target) }
+                post { onRaid(target) }
+            }
+            "App\\Events\\UserBannedEvent" -> {
+                val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
+                val (user, line) = parseBan(data) ?: return
+                post { onBan(user, line) }
+            }
+            "App\\Events\\ChatroomClearEvent" -> post { onCleared() }
+            "App\\Events\\ChatroomUpdatedEvent" -> {
+                val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
+                val modes = parseChatModes(data)
+                post { onModes(modes) }
+            }
+            "App\\Events\\StopStreamBroadcast" -> post { onStreamEnded() }
+            "App\\Events\\SubscriptionEvent", "App\\Events\\GiftedSubscriptionsEvent", "App\\Events\\StreamHostEvent" -> {
+                val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
+                val event = parseChatEvent(msg.optString("event"), data) ?: return
+                post { onEvent(event) }
             }
             "App\\Events\\MessageDeletedEvent" -> {
                 val data = try { JSONObject(msg.optString("data")) } catch (e: Exception) { return }
                 val id = data.optJSONObject("message")?.optString("id") ?: return
-                main.post { onDeleted(id) }
+                post { onDeleted(id) }
             }
+            else -> if (msg.optString("event").contains("Prediction", ignoreCase = true)) post { onPrediction() }
         }
     }
 

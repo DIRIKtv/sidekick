@@ -26,6 +26,9 @@ class SidekickApp : Application(), SingletonImageLoader.Factory, android.content
          * One bandwidth estimate for the whole app, so each new stream starts at the quality
          * the connection actually supports instead of re-learning it (and stalling) every time.
          */
+        /** Card images kept on disk. TVs have little storage, so this is kept modest. */
+        const val IMAGE_CACHE_BYTES = 80L * 1024 * 1024
+
         fun bandwidthMeter(context: Context): DefaultBandwidthMeter =
             meter ?: DefaultBandwidthMeter.Builder(context.applicationContext)
                 .setInitialBitrateEstimate(5_000_000)
@@ -59,6 +62,12 @@ class SidekickApp : Application(), SingletonImageLoader.Factory, android.content
             override fun onActivityDestroyed(activity: Activity) {}
         })
         TvHome.schedule(this)
+        // Housekeeping that can wait: an installed update's APK, and resume points for videos
+        // that have left the watch history.
+        Thread({
+            Updater.cleanUp(this)
+            com.diriktv.sidekick.data.Prefs(this).pruneVodPositions()
+        }, "housekeeping").apply { priority = Thread.MIN_PRIORITY }.start()
     }
 
     /**
@@ -81,6 +90,12 @@ class SidekickApp : Application(), SingletonImageLoader.Factory, android.content
         ImageLoader.Builder(context)
             .components { add(OkHttpNetworkFetcherFactory(callFactory = { KickApi.http })) }
             .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.3).build() }
+            .diskCache {
+                coil3.disk.DiskCache.Builder()
+                    .directory(okio.Path.Companion.run { context.cacheDir.resolve("image_cache").absolutePath.toPath() })
+                    .maxSizeBytes(IMAGE_CACHE_BYTES)
+                    .build()
+            }
             .crossfade(120)
             .build()
 }

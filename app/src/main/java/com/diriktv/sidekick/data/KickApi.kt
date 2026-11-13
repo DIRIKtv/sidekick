@@ -1,7 +1,10 @@
 package com.diriktv.sidekick.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -49,8 +52,23 @@ object KickApi {
     /** Set when signed in; added to kick.com API calls. */
     @Volatile var authToken: String? = null
 
+    /**
+     * Released once the saved session has been read at start-up (it's decrypted off the main
+     * thread). Calls that act for the account wait for it, so none goes out unsigned by mistake.
+     */
+    val sessionLoaded = java.util.concurrent.CountDownLatch(1)
+
     /** At most this many kick.com API calls in flight; bursts (one lookup per follow) got rate limited. */
     private val apiSlots = Semaphore(6)
+
+    /**
+     * Background lookups (follower counts for offline follows) run at most two at a time, so the
+     * other slots stay free for what the viewer is waiting on, like opening a stream.
+     */
+    private val lowSlots = Semaphore(2)
+
+    /** Tag for a request that can wait behind everything else; see [lowSlots]. */
+    private object LowPriority
 
     /** After a 429, every API call waits until this time. */
     @Volatile private var coolDownUntil = 0L
@@ -80,7 +98,9 @@ object KickApi {
             if (!isApi(req.url)) return@addInterceptor chain.proceed(b.build())
             if (req.header("Accept") == null) b.header("Accept", "application/json")
             // Only the saved session counts: sign-in checks a fresh token with its own header.
-            val sentToken = if (needsAuth(req.url) && req.header("Authorization") == null) authToken else null
+            val auth = needsAuth(req.url) && req.header("Authorization") == null
+            if (auth) sessionLoaded.await(5, TimeUnit.SECONDS)
+            val sentToken = if (auth) authToken else null
             sentToken?.let { b.header("Authorization", "Bearer $it") }
             val resp = throttled(chain, b.build())
             if (resp.code == 401 && sentToken != null && sentToken == authToken) onSessionRejected?.invoke()
@@ -88,23 +108,71 @@ object KickApi {
         }
         .build()
 
-    /** Runs an API call inside the concurrency limit, waiting out and retrying 429s a couple of times. */
+    /**
+     * Runs an API call inside the concurrency limit, waiting out and retrying 429s a couple of
+     * times. A call cancelled while it waits for a slot (a search overtaken by the next keystroke)
+     * gives up straight away instead of holding a slot for nothing.
+     */
     private fun throttled(chain: Interceptor.Chain, req: Request): Response {
-        apiSlots.acquire()
+        val low = req.tag(LowPriority::class.java) != null
+        if (low) acquire(lowSlots, chain)
         try {
-            var attempt = 0
-            while (true) {
-                val wait = coolDownUntil - System.currentTimeMillis()
-                if (wait > 0) Thread.sleep(wait)
-                val resp = chain.proceed(req)
-                if (resp.code != 429 || attempt >= 2) return resp
-                val retryAfter = resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000) ?: (2000L shl attempt)
-                resp.close()
-                coolDownUntil = maxOf(coolDownUntil, System.currentTimeMillis() + retryAfter.coerceIn(1000, 15_000))
-                attempt++
+            acquire(apiSlots, chain)
+            try {
+                var attempt = 0
+                while (true) {
+                    while (true) {
+                        val wait = coolDownUntil - System.currentTimeMillis()
+                        if (wait <= 0) break
+                        if (chain.call().isCanceled()) throw IOException("Canceled")
+                        Thread.sleep(minOf(wait, 200))
+                    }
+                    val resp = chain.proceed(req)
+                    if (resp.code != 429 || attempt >= 2) return resp
+                    val retryAfter = resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000) ?: (2000L shl attempt)
+                    resp.close()
+                    coolDownUntil = maxOf(coolDownUntil, System.currentTimeMillis() + retryAfter.coerceIn(1000, 15_000))
+                    attempt++
+                }
+            } finally {
+                apiSlots.release()
             }
         } finally {
-            apiSlots.release()
+            if (low) lowSlots.release()
+        }
+    }
+
+    private fun acquire(slots: Semaphore, chain: Interceptor.Chain) {
+        while (!slots.tryAcquire(200, TimeUnit.MILLISECONDS)) {
+            if (chain.call().isCanceled()) throw IOException("Canceled")
+        }
+    }
+
+    /**
+     * Runs the call and suspends until it answers. Unlike execute() inside withContext(IO), a
+     * cancelled coroutine cancels the HTTP call too, freeing its connection and API slot.
+     */
+    internal suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
+        enqueue(object : Callback {
+            override fun onResponse(call: Call, response: Response) {
+                cont.resume(response) { _, r, _ -> r.close() }
+            }
+            override fun onFailure(call: Call, e: IOException) {
+                if (!cont.isCancelled) cont.resumeWith(Result.failure(e))
+            }
+        })
+        cont.invokeOnCancellation { runCatching { cancel() } }
+    }
+
+    /** Sends [req] and returns the body, or throws a [KickException] for an error answer. */
+    private suspend fun fetch(req: Request): String {
+        val resp = http.newCall(req).await()
+        return withContext(Dispatchers.IO) {
+            resp.use {
+                val body = it.body?.string().orEmpty()
+                if (!it.isSuccessful) throw httpError(it, body)
+                body
+            }
         }
     }
 
@@ -127,21 +195,12 @@ object KickApi {
         return KickException(kind, resp.code, where)
     }
 
-    private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
-        http.newCall(Request.Builder().url(url).build()).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw httpError(resp, body)
-            body
-        }
-    }
+    private suspend fun get(url: String, low: Boolean = false): String =
+        fetch(Request.Builder().url(url).apply { if (low) tag(LowPriority::class.java, LowPriority) }.build())
 
-    private suspend fun post(url: String, json: JSONObject, method: String = "POST"): String = withContext(Dispatchers.IO) {
+    private suspend fun post(url: String, json: JSONObject, method: String = "POST"): String {
         val body = json.toString().toRequestBody("application/json".toMediaType())
-        http.newCall(Request.Builder().url(url).method(method, body).build()).execute().use { resp ->
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw httpError(resp, text)
-            text
-        }
+        return fetch(Request.Builder().url(url).method(method, body).build())
     }
 
     private val SLUG = Regex("^[A-Za-z0-9_-]{1,64}$")
@@ -161,6 +220,28 @@ object KickApi {
     private class Cached<T>(val at: Long, val value: T)
     private val channelCache = ConcurrentHashMap<String, Cached<ChannelInfo>>()
     private val liveCache = ConcurrentHashMap<String, Cached<LiveStream?>>()
+
+    /** Nothing asks for a channel lookup older than this, so older entries are only taking memory. */
+    private const val CACHE_TTL_MS = 5 * 60_000L
+    private const val CACHE_MAX = 300
+
+    /** Drops stale entries (and the oldest, if it's still too big) once [cache] passes a size worth tidying. */
+    private fun <T> prune(cache: ConcurrentHashMap<String, Cached<T>>) {
+        if (cache.size < 100) return
+        val now = System.currentTimeMillis()
+        // (Not removeIf: that's Android 7+.)
+        val it = cache.entries.iterator()
+        while (it.hasNext()) if (now - it.next().value.at > CACHE_TTL_MS) it.remove()
+        if (cache.size > CACHE_MAX) {
+            cache.entries.sortedBy { it.value.at }.take(cache.size - CACHE_MAX).forEach { cache.remove(it.key) }
+        }
+    }
+
+    /** Forget every cached lookup (Settings → Clear cache). */
+    fun clearCaches() {
+        channelCache.clear()
+        liveCache.clear()
+    }
 
     /** Live streams sorted by viewers. [language] null means all languages. */
     suspend fun livestreams(
@@ -221,11 +302,21 @@ object KickApi {
     suspend fun channel(slug: String, maxAgeMs: Long = 20_000): ChannelInfo {
         val key = slug.lowercase()
         channelCache[key]?.let { if (System.currentTimeMillis() - it.at < maxAgeMs) return it.value }
-        return fetchChannel(key).also { channelCache[key] = Cached(System.currentTimeMillis(), it) }
+        return fetchChannel(key).also { channelCache[key] = Cached(System.currentTimeMillis(), it); prune(channelCache) }
     }
 
-    private suspend fun fetchChannel(slug: String): ChannelInfo {
-        val o = JSONObject(get("https://kick.com/api/v2/channels/${path(slug)}"))
+    /**
+     * Like [channel], but waits behind everything else for an API slot: for extras such as
+     * follower counts that nobody is waiting on.
+     */
+    suspend fun channelInBackground(slug: String, maxAgeMs: Long = 120_000): ChannelInfo {
+        val key = slug.lowercase()
+        channelCache[key]?.let { if (System.currentTimeMillis() - it.at < maxAgeMs) return it.value }
+        return fetchChannel(key, low = true).also { channelCache[key] = Cached(System.currentTimeMillis(), it); prune(channelCache) }
+    }
+
+    private suspend fun fetchChannel(slug: String, low: Boolean = false): ChannelInfo {
+        val o = JSONObject(get("https://kick.com/api/v2/channels/${path(slug)}", low))
         val user = o.optJSONObject("user") ?: JSONObject()
         val live = o.optJSONObject("livestream")
         val liveCats = live?.optJSONArray("categories")
@@ -241,6 +332,7 @@ object KickApi {
             followers = o.optInt("followers_count"),
             verified = o.opt("verified").let { it != null && it != JSONObject.NULL && it != false },
             chatroomId = o.optJSONObject("chatroom")?.optInt("id") ?: 0,
+            chatModes = o.optJSONObject("chatroom")?.let { parseChatModes(it) } ?: ChatModes(),
             playbackUrl = o.optStringOrNull("playback_url"),
             isLive = live != null && live.optBoolean("is_live", true),
             liveTitle = live?.optStringOrNull("session_title"),
@@ -280,6 +372,7 @@ object KickApi {
             )
         }
         liveCache[key] = Cached(System.currentTimeMillis(), live)
+        prune(liveCache)
         return live
     }
 
@@ -429,11 +522,22 @@ object KickApi {
         return (0 until arr.length()).mapNotNull { parseChatMessage(arr.getJSONObject(it)) }
     }
 
-    /** The message pinned at the top of a channel's chat, or null. */
-    suspend fun pinnedMessage(channelId: Int): ChatMessage? {
+    /** A channel's chat as it stands: the pinned message (or null) and the latest messages, oldest first. */
+    class RecentChat(val pinned: ChatMessage?, val messages: List<ChatMessage>)
+
+    /** The pinned message and recent messages of a channel's chat, in one call. */
+    suspend fun recentChat(channelId: Int): RecentChat {
         val data = JSONObject(get("https://kick.com/api/v2/channels/$channelId/messages")).optJSONObject("data")
-        return data?.optJSONObject("pinned_message")?.optJSONObject("message")?.let { parseChatMessage(it) }
+        val pinned = data?.optJSONObject("pinned_message")?.optJSONObject("message")?.let { parseChatMessage(it) }
+        val arr = data?.optJSONArray("messages") ?: JSONArray()
+        val messages = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let { o -> runCatching { parseChatMessage(o) }.getOrNull() } }
+        // Kick lists them newest first.
+        val ordered = messages.sortedBy { it.receivedAt }
+        return RecentChat(pinned, ordered)
     }
+
+    /** The message pinned at the top of a channel's chat, or null. */
+    suspend fun pinnedMessage(channelId: Int): ChatMessage? = recentChat(channelId).pinned
 
     /** The poll running in [slug]'s chat, or null when there isn't one. */
     suspend fun poll(slug: String): ChatPoll? {

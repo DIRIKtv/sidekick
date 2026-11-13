@@ -37,3 +37,55 @@ class ChatParseTest {
         assertEquals(1793242801000L, m.receivedAt)
     }
 }
+
+class ChatEventParseTest {
+    @Test
+    fun timeoutAndBan() {
+        val (user, line) = parseBan(JSONObject("""{"id":"x","user":{"id":1,"username":"Spammer","slug":"spammer"},
+            "banned_by":{"username":"mod"},"permanent":false,"duration":10}"""))!!
+        assertEquals("Spammer", user)
+        assertEquals("Spammer was timed out for 10 minutes", line)
+        assertEquals("Troll was banned", parseBan(JSONObject("""{"user":{"username":"Troll"},"permanent":true}"""))!!.second)
+        assertEquals("A was timed out for 1 day", parseBan(JSONObject("""{"user":{"username":"A"},"duration":1440}"""))!!.second)
+    }
+
+    @Test
+    fun chatModesFromTheChannelApi() {
+        // The flat shape /api/v2/channels/<slug> returns for its chatroom.
+        val m = parseChatModes(JSONObject("""{"id":1,"slow_mode":true,"followers_mode":true,"subscribers_mode":false,
+            "emotes_mode":false,"message_interval":7,"following_min_duration":1440}"""))
+        assertEquals("Slow mode 7s  •  Followers only (1440 min)", m.describe())
+    }
+
+    @Test
+    fun chatModesFromAnUpdateEvent() {
+        val m = parseChatModes(JSONObject("""{"id":1,"slow_mode":{"enabled":false,"message_interval":5},
+            "subscribers_mode":{"enabled":true},"followers_mode":{"enabled":false,"min_duration":0},"emotes_mode":{"enabled":false}}"""))
+        assertEquals("Subscribers only", m.describe())
+        assertNull(parseChatModes(JSONObject("""{"slow_mode":{"enabled":false}}""")).describe())
+    }
+
+    @Test
+    fun replyKeepsWhatItAnswers() {
+        val m = parseChatMessage(JSONObject("""{"id":"r","content":"same","type":"reply",
+            "sender":{"username":"b","identity":{"badges":[]}},
+            "metadata":{"original_sender":{"id":1,"username":"a"},"original_message":{"id":"o","content":"hello"}}}"""))!!
+        assertEquals("a", m.replyTo)
+        assertEquals("hello", m.replyText)
+        val fromString = parseChatMessage(JSONObject().put("id", "s").put("content", "x")
+            .put("sender", JSONObject().put("username", "c"))
+            .put("metadata", """{"original_sender":{"username":"z"},"original_message":{"content":"q"}}"""))!!
+        assertEquals("z", fromString.replyTo)
+    }
+
+    @Test
+    fun subsGiftsAndHosts() {
+        assertEquals("ann subscribed for 3 months",
+            parseChatEvent("App\\Events\\SubscriptionEvent", JSONObject("""{"username":"ann","months":3}"""))?.text)
+        assertEquals("bob gifted 5 subs", parseChatEvent("App\\Events\\GiftedSubscriptionsEvent",
+            JSONObject("""{"gifter_username":"bob","gifted_usernames":["a","b","c","d","e"]}"""))?.text)
+        assertEquals("cat is hosting with 40 viewers",
+            parseChatEvent("App\\Events\\StreamHostEvent", JSONObject("""{"host_username":"cat","number_viewers":40}"""))?.text)
+        assertNull(parseChatEvent("App\\Events\\Other", JSONObject("{}")))
+    }
+}

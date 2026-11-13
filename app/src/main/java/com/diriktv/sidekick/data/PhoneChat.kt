@@ -44,11 +44,19 @@ object PhoneChat {
         "sub_gifter" to com.diriktv.sidekick.R.drawable.badge_sub_gifter,
     )
     private var app: Context? = null
-    private val emoteCache = java.util.concurrent.ConcurrentHashMap<String, JSONObject>()
+    /** The current channel's emotes for the phone's quick bar, and when they were looked up. */
+    private class Emotes(val slug: String, val at: Long, val json: JSONObject)
+    @Volatile private var emoteCache: Emotes? = null
+    /** Emote sets change now and then; look them up again after this long. */
+    private const val EMOTE_TTL_MS = 30 * 60_000L
 
     @Volatile var target: Target? = null
         set(v) {
-            if (v?.slug != field?.slug) synchronized(recent) { recent.clear() }
+            if (v?.slug != field?.slug) {
+                // Another channel: nothing from the last one is needed any more.
+                synchronized(recent) { recent.clear(); seqOf.clear(); (recent as Object).notifyAll() }
+                if (emoteCache?.slug?.equals(v?.slug, true) != true) emoteCache = null
+            }
             field = v
         }
 
@@ -80,6 +88,17 @@ object PhoneChat {
             recent.addLast(m)
             seqOf[m.id] = ++seq
             while (recent.size > 60) seqOf.remove(recent.removeFirst().id)
+            // Wake phones waiting for something new.
+            (recent as Object).notifyAll()
+        }
+    }
+
+    /** A user was banned or timed out: their messages don't go to phones that haven't fetched them yet. */
+    fun removeUser(username: String) {
+        synchronized(recent) {
+            val gone = recent.filter { it.username.equals(username, true) }
+            recent.removeAll(gone)
+            gone.forEach { seqOf.remove(it.id) }
         }
     }
 
@@ -133,8 +152,8 @@ object PhoneChat {
     private fun stop() {
         server.stop()
         target = null
-        synchronized(recent) { recent.clear(); seqOf.clear() }
-        emoteCache.clear()
+        synchronized(recent) { recent.clear(); seqOf.clear(); (recent as Object).notifyAll() }
+        emoteCache = null
     }
 
     /** Settings → Unpair phones: every saved phone page stops working; the next scan gets a new key. */
@@ -163,7 +182,12 @@ object PhoneChat {
                 LocalHttp.respondBytes(s, 200, "image/png", bytes, cache = true)
             }
             req.method == "GET" && req.path == "/emotes" -> LocalHttp.respond(s, 200, "application/json", emotes().toString())
-            req.method == "GET" && req.path == "/state" -> LocalHttp.respond(s, 200, "application/json", state(req.query["after"]?.toLongOrNull() ?: 0).toString())
+            req.method == "GET" && req.path == "/state" -> {
+                val after = req.query["after"]?.toLongOrNull() ?: 0
+                // A phone asking to wait is answered as soon as there's news, or after a while anyway.
+                if (req.query["wait"] == "1") awaitNews(after)
+                LocalHttp.respond(s, 200, "application/json", state(after).toString())
+            }
             req.method == "POST" && req.path == "/send" -> {
                 val text = runCatching { JSONObject(req.body).optString("text") }.getOrNull().orEmpty().trim().take(500)
                 val t = target
@@ -177,6 +201,25 @@ object PhoneChat {
                 LocalHttp.respond(s, 200, "application/json", JSONObject().put("ok", error == null).put("error", error).toString())
             }
             else -> LocalHttp.respond(s, 404, "text/plain", "Not found")
+        }
+    }
+
+    /** How long a phone's request is held open waiting for new messages before it's answered anyway. */
+    private const val LONG_POLL_MS = 15_000L
+
+    /**
+     * Holds a phone's request until there's a message newer than [after], the channel changes or
+     * [LONG_POLL_MS] passes. One open request per phone replaces a new connection every second.
+     */
+    private fun awaitNews(after: Long) {
+        val slug = target?.slug
+        val until = System.currentTimeMillis() + LONG_POLL_MS
+        synchronized(recent) {
+            while (seq == after && target?.slug == slug && server.running) {
+                val left = until - System.currentTimeMillis()
+                if (left <= 0) break
+                (recent as Object).wait(left)
+            }
         }
     }
 
@@ -225,11 +268,15 @@ object PhoneChat {
     /** The channel's Kick emotes for the quick bar, and its 7TV emotes for drawing messages. */
     private fun emotes(): JSONObject {
         val t = target ?: return JSONObject().put("kick", JSONArray()).put("seventv", JSONObject())
-        val kick = emoteCache.getOrPut(t.slug) {
-            val list = runCatching { runBlocking { KickApi.emotes(t.slug) } }.getOrDefault(emptyList())
-            JSONObject().put("list", JSONArray().apply {
-                list.forEach { put(JSONObject().put("id", it.id).put("n", it.name).put("s", it.subsOnly).put("set", it.set)) }
+        val now = System.currentTimeMillis()
+        val kick = emoteCache?.takeIf { it.slug.equals(t.slug, true) && now - it.at < EMOTE_TTL_MS }?.json ?: run {
+            val list = runCatching { runBlocking { KickApi.emotes(t.slug) } }.getOrNull()
+            val json = JSONObject().put("list", JSONArray().apply {
+                list.orEmpty().forEach { put(JSONObject().put("id", it.id).put("n", it.name).put("s", it.subsOnly).put("set", it.set)) }
             })
+            // A failed lookup isn't kept, so the next request tries again.
+            if (list != null) emoteCache = Emotes(t.slug, now, json)
+            json
         }
         return JSONObject().put("kick", kick.getJSONArray("list")).put("seventv", JSONObject(sevenTv as Map<*, *>))
     }
@@ -271,7 +318,7 @@ button:disabled{opacity:.5}.hide{display:none}
 <div id="qe" class="hide"></div>
 <form id="f"><input id="t" placeholder="Send a message" autocomplete="off" maxlength="500" enterkeyhint="send"><button id="b">Send</button></form>
 <script>
-var k=new URLSearchParams(location.search).get('k'),last=0,channel=null,stv={},kick=[],tab='channel',picked={};
+var k=new URLSearchParams(location.search).get('k'),last=0,started=0,channel=null,stv={},kick=[],tab='channel',picked={};
 function g(i){return document.getElementById(i)}
 function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 // Kick emotes arrive as [emote:id:name]; 7TV emotes are plain words that match the channel's set.
@@ -300,7 +347,7 @@ function note(text,err){var n=g('note');n.textContent=text||'';n.classList.toggl
 function add(m){var log=g('log'),stick=log.scrollHeight-log.scrollTop-log.clientHeight<60,d=document.createElement('div');d.className='m';
  d.innerHTML=badges(m.b)+'<b style="color:'+color(m.c)+'">'+esc(m.u)+'</b>: '+render(m.t);log.appendChild(d);
  while(log.children.length>150)log.removeChild(log.firstChild);if(stick)log.scrollTop=log.scrollHeight}
-function poll(){fetch('/state?k='+k+'&after='+last).then(function(r){return r.json()}).then(function(s){
+function poll(){fetch('/state?k='+k+'&wait='+(started?1:0)+'&after='+last).then(function(r){return r.json()}).then(function(s){
  var name=s.channel&&s.channel.name;
  if(name!==channel){channel=name;g('log').innerHTML='';picked={};tab='channel';loadEmotes();}
  if(s.reset)g('log').innerHTML='';
@@ -311,7 +358,7 @@ function poll(){fetch('/state?k='+k+'&after='+last).then(function(r){return r.js
  if(!s.signedIn)note('Sign in to Kick on your TV to chat (Settings → Account). You can still read along.');
  else if(!name)note('Start a live stream on your TV. This page follows whatever it plays.');
  else if(!g('note').classList.contains('err'))note('');
- setTimeout(poll,1200)}).catch(function(){g('sub').textContent="Can't reach your TV. Is your phone on the same Wi-Fi?";setTimeout(poll,3000)})}
+ started=1;setTimeout(poll,150)}).catch(function(){g('sub').textContent="Can't reach your TV. Is your phone on the same Wi-Fi?";setTimeout(poll,3000)})}
 g('f').onsubmit=function(e){e.preventDefault();var t=g('t').value.trim();if(!t)return;g('b').disabled=true;
  fetch('/send?k='+k,{method:'POST',body:JSON.stringify({text:encode(t)})}).then(function(r){return r.json()}).then(function(r){
   g('b').disabled=false;if(r.ok){g('t').value='';note('')}else note(r.error,true)}).catch(function(){g('b').disabled=false;note("Couldn't reach your TV.",true)})};

@@ -104,7 +104,7 @@ object FocusPreview {
             // Built with a leveler (off while muted) so it can become the full-screen player.
             val p = player ?: LoudnessLeveler(false).let { lv ->
                 leveler = lv
-                PlayerFactory.create(act.applicationContext, leveler = lv).also { player = it }
+                PlayerFactory.create(act.applicationContext, leveler = lv, audioFocus = false, preview = true).also { player = it }
             }
             p.volume = 0f
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
@@ -154,17 +154,20 @@ object FocusPreview {
 
     /**
      * OK was pressed on [slug]: if its preview is up, the player leaves here still playing and
-     * waits for the full-screen player to [take] it.
+     * waits for the full-screen player to [take] it. Returns the picture it was playing in, for
+     * the full-screen player to grow out of; null when there was no preview to hand over.
      */
-    fun handOff(slug: String) {
-        val p = player ?: return
-        if (playingSlug != slug || p.playbackState == Player.STATE_IDLE || p.playerError != null) return
+    fun handOff(slug: String): View? {
+        val p = player ?: return null
+        if (playingSlug != slug || p.playbackState == Player.STATE_IDLE || p.playerError != null) return null
+        val lv = leveler ?: return null
         p.removeListener(firstFrame)
         handoff?.player?.release()
-        handoff = Handoff(p, leveler ?: return, slug)
+        handoff = Handoff(p, lv, slug)
         player = null
         leveler = null
         playingSlug = null
+        return surface?.takeIf { it.alpha > 0.5f } ?: card
     }
 
     /** The handed-off player for [slug], if there is one; any other is released. */

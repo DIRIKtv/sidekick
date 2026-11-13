@@ -18,7 +18,9 @@ object Follows {
     private val accountSlugs: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     private lateinit var app: Context
 
-    val signedIn get() = KickApi.authToken != null
+    /** Signed in, or a saved sign-in is still being read at start-up. */
+    val signedIn get() = KickApi.authToken != null || loadingSession
+    @Volatile private var loadingSession = false
 
     /** Signed in, but Kick no longer accepts the session: offer "Sign in again". */
     @Volatile var sessionExpired = false
@@ -31,14 +33,38 @@ object Follows {
     @Volatile var version = 0
         private set
 
+    /**
+     * Reads the saved sign-in. The token is decrypted through the Android Keystore, which can take
+     * a noticeable moment on a TV, so that happens off the main thread; until it's done the app
+     * counts as signed in if a token was saved, and calls that need it wait (see KickApi.sessionLoaded).
+     */
     fun init(context: Context) {
         app = context.applicationContext
         val prefs = Prefs(app)
-        KickApi.authToken = prefs.sessionToken
-        sessionExpired = KickApi.authToken != null && prefs.sessionExpired
-        if (KickApi.authToken != null) accountSlugs += prefs.accountFollows
+        val saved = prefs.hasSessionToken
+        loadingSession = saved
+        sessionExpired = saved && prefs.sessionExpired
+        if (saved) accountSlugs += prefs.accountFollows
         KickApi.onSessionRejected = { markExpired() }
         Network.onReconnected += { if (signedIn && !sessionExpired) { invalidate() } }
+        if (!saved) {
+            KickApi.sessionLoaded.countDown()
+            return
+        }
+        Thread({
+            val token = runCatching { prefs.sessionToken }.getOrNull()
+            // Signed in or out on the TV meanwhile: that wins.
+            if (loadingSession) KickApi.authToken = token
+            loadingSession = false
+            KickApi.sessionLoaded.countDown()
+            if (token == null) {
+                // The saved token couldn't be read (a Keystore reset): it's as if signed out.
+                accountSlugs.clear()
+                sessionExpired = false
+                invalidate()
+            }
+            mainHandler.post { sessionListeners.forEach { it() } }
+        }, "session-load").start()
     }
 
     private fun markExpired() {
@@ -50,6 +76,7 @@ object Follows {
 
     fun signIn(context: Context, token: String, name: String, avatar: String?) {
         Prefs(context).apply { sessionToken = token; accountName = name; accountAvatar = avatar; sessionExpired = false }
+        loadingSession = false
         KickApi.authToken = token
         sessionExpired = false
         mainHandler.post { sessionListeners.forEach { it() } }
@@ -61,6 +88,7 @@ object Follows {
             sessionToken = null; accountName = null; accountAvatar = null
             sessionExpired = false; accountFollows = emptySet(); pendingFollows = emptyMap()
         }
+        loadingSession = false
         KickApi.authToken = null
         sessionExpired = false
         accountSlugs.clear()

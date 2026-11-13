@@ -83,6 +83,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    // A media session: voice commands ("pause", "rewind 30 seconds"), HDMI-CEC remote keys and the TV's Now Playing card.
+    implementation("androidx.media3:media3-session:$media3")
 
     implementation("androidx.core:core-ktx:1.19.1")
     // Installs the startup profile (src/main/baseline-prof.txt) on sideloaded installs too.
@@ -95,6 +97,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("io.coil-kt.coil3:coil:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
+    // Animated emotes in chat (Settings → Chat → Animated emotes).
+    implementation("io.coil-kt.coil3:coil-gif:3.6.3")
     implementation("com.google.zxing:core:3.5.4")
 
     // Debug builds only: watches for leaked screens and views and reports them to logcat

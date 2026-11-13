@@ -23,6 +23,10 @@ internal class ChatController(private val act: PlayerActivity) {
         /** Calm chat shows one message per interval and lets the queue run at most this far behind. */
         private const val CALM_INTERVAL_MS = 450L
         private const val CALM_BACKLOG = 12
+        /** Messages arriving within this long of each other go into chat together. */
+        private const val FLUSH_MS = 100L
+        /** Polls arrive live over the socket; the API is only asked this often, and only while chat shows. */
+        private const val POLL_CHECK_MS = 60_000L
     }
 
     private val prefs = act.prefs
@@ -35,16 +39,20 @@ internal class ChatController(private val act: PlayerActivity) {
         emoteScale = prefs.chatEmoteScale
     }
     private val pinnedView: android.widget.TextView = act.findViewById(R.id.chatPinned)
+    private val modesView: android.widget.TextView = act.findViewById(R.id.chatModes)
     private val pollView: android.widget.LinearLayout = act.findViewById(R.id.chatPoll)
     private var pinned: ChatMessage? = null
     private var poll: com.diriktv.sidekick.data.ChatPoll? = null
     private var liveChannel: ChannelInfo? = null
     private val pollTick = object : Runnable {
         override fun run() {
-            checkPolls()
+            if (shown && System.currentTimeMillis() - lastPollCheck >= POLL_CHECK_MS) checkPolls()
             act.ui.postDelayed(this, 15_000)
         }
     }
+    private var lastPollCheck = 0L
+    /** A prediction event came in: look it up once things settle (they come in bursts). */
+    private val predictionCheck = Runnable { checkPolls() }
     private val filter = ChatFilter(prefs)
 
     private var client: ChatClient? = null
@@ -55,6 +63,12 @@ internal class ChatController(private val act: PlayerActivity) {
     var wanted = false
 
     private val backlog = ArrayDeque<ChatMessage>()
+    /** Messages waiting for the next flush into the list. */
+    private val incoming = ArrayList<ChatMessage>()
+    private var flushPosted = false
+    private val flushRunnable = Runnable { flush() }
+    /** When the last live message arrived (local time), to tell which recent ones were missed in an outage. */
+    private var lastLiveAt = 0L
     private var draining = false
     private val drainNext = Runnable { drain() }
     private var animator: ValueAnimator? = null
@@ -73,6 +87,8 @@ internal class ChatController(private val act: PlayerActivity) {
         list.layoutManager = LinearLayoutManager(act).apply { stackFromEnd = true }
         list.adapter = adapter
         list.itemAnimator = slideIn
+        adapter.mentionName = prefs.accountName?.takeIf { com.diriktv.sidekick.data.Follows.signedIn }
+        adapter.animatedEmotes = prefs.chatAnimatedEmotes
     }
 
     /** Chat is on screen: live, or replaying a past broadcast's chat, and not in picture-in-picture. */
@@ -160,12 +176,22 @@ internal class ChatController(private val act: PlayerActivity) {
         val gen = generation
         if (liveChannel?.id != c.id) {
             liveChannel = c
+            modes = c.chatModes
+            showModes()
+            // The pinned message and the latest messages, so chat isn't empty on joining.
             act.lifecycleScope.launch {
-                val p = runCatching { KickApi.pinnedMessage(c.id) }.getOrNull()
+                val recent = runCatching { KickApi.recentChat(c.id) }.getOrNull() ?: return@launch
                 if (gen != generation) return@launch
-                pinned = p
+                pinned = recent.pinned
                 showPinned()
+                if (!adapter.hasMessages) {
+                    val earlier = recent.messages.filter { filter.allows(it) && !adapter.contains(it.id) }
+                    adapter.prepend(earlier)
+                    if (act.mode != PlayerActivity.Mode.VOD) earlier.forEach { PhoneChat.record(it) }
+                    if (panel.visibility == View.VISIBLE) list.scrollToPosition((adapter.itemCount - 1).coerceAtLeast(0))
+                }
             }
+            lastPollCheck = 0
             act.ui.removeCallbacks(pollTick)
             act.ui.post(pollTick)
         }
@@ -185,15 +211,58 @@ internal class ChatController(private val act: PlayerActivity) {
                 cluster = cluster,
                 onMessage = { receive(it) },
                 onDeleted = { id -> backlog.removeAll { it.id == id }; adapter.remove(id) },
-                onStatus = { add(ChatMessage("sys-${System.nanoTime()}", "", null, it, emptyList(), isSystem = true)) },
+                onStatus = { system(it) },
                 channelId = c.id,
                 onRaid = { act.onRaid(it) },
                 onPinned = { pinned = it; showPinned() },
                 onPoll = { poll = it; showPoll() },
+                onBan = { user, line ->
+                    backlog.removeAll { it.username.equals(user, true) }
+                    incoming.removeAll { it.username.equals(user, true) }
+                    adapter.removeUser(user)
+                    PhoneChat.removeUser(user)
+                    system(line)
+                },
+                onCleared = {
+                    backlog.clear()
+                    incoming.clear()
+                    adapter.clear()
+                    system("Chat was cleared by a moderator")
+                },
+                onEvent = { system(it.text) },
+                onModes = { modes = it; showModes() },
+                onStreamEnded = { act.onStreamEnded() },
+                onPrediction = {
+                    act.ui.removeCallbacks(predictionCheck)
+                    act.ui.postDelayed(predictionCheck, 1_500)
+                },
+                onReconnected = { catchUp(c, gen) },
             ).also { it.connect() }
             PhoneChat.target = PhoneChat.Target(c.slug, c.username, c.avatar, c.chatroomId, c.subscriberBadges)
             PhoneChat.sevenTv = adapter.thirdPartyEmotes
         }
+    }
+
+    private fun system(text: String) = add(ChatMessage("sys-${System.nanoTime()}", "", null, text, emptyList(), isSystem = true))
+
+    /** Back after an outage: adds the messages Kick has from while chat was down. */
+    private fun catchUp(c: ChannelInfo, gen: Int) {
+        val since = lastLiveAt - 3_000
+        act.lifecycleScope.launch {
+            val recent = runCatching { KickApi.recentChat(c.id) }.getOrNull() ?: return@launch
+            if (gen != generation) return@launch
+            val missed = recent.messages.filter { it.receivedAt > since && filter.allows(it) && !adapter.contains(it.id) && incoming.none { m -> m.id == it.id } }
+            missed.forEach { add(it) }
+        }
+    }
+
+    private var modes = com.diriktv.sidekick.data.ChatModes()
+
+    /** A small line under the chat title when chat is restricted (slow mode, followers-only…). */
+    private fun showModes() {
+        val text = modes.describe()?.takeIf { act.mode != PlayerActivity.Mode.VOD }
+        modesView.setVisible(text != null)
+        modesView.text = text
     }
 
     /** (Re)loads 7TV emotes for [c], or clears them when they're turned off. */
@@ -263,10 +332,15 @@ internal class ChatController(private val act: PlayerActivity) {
         pinnedView.setCompoundDrawablesRelative(pin, null, null, null)
     }
 
-    /** Checks Kick for a running poll and the latest prediction (live events also update it). */
+    /**
+     * Checks Kick for a running poll and the latest prediction. Polls also arrive live over the
+     * socket, so this only runs every [POLL_CHECK_MS] while chat is on screen, and when a
+     * prediction event comes in.
+     */
     private fun checkPolls() {
         val c = liveChannel ?: return
         if (!prefs.chatPolls || act.mode == PlayerActivity.Mode.VOD) return
+        lastPollCheck = System.currentTimeMillis()
         act.lifecycleScope.launch {
             val p = runCatching { KickApi.poll(c.slug) }.getOrNull()
                 ?: runCatching { KickApi.prediction(c.slug) }.getOrNull()
@@ -350,8 +424,11 @@ internal class ChatController(private val act: PlayerActivity) {
         liveChannel = null
         pinned = null
         poll = null
+        modes = com.diriktv.sidekick.data.ChatModes()
+        showModes()
         showPinned()
         showPoll()
+        incoming.clear()
         adapter.clear()
         adapter.subscriberBadges = emptyList()
         adapter.thirdPartyEmotes = emptyMap()
@@ -359,6 +436,11 @@ internal class ChatController(private val act: PlayerActivity) {
 
     fun close() {
         act.ui.removeCallbacks(drainNext)
+        act.ui.removeCallbacks(flushRunnable)
+        act.ui.removeCallbacks(predictionCheck)
+        flushPosted = false
+        // Messages already in hand still go in; only the live connection stops.
+        if (incoming.isNotEmpty()) flush()
         backlog.clear()
         draining = false
         client?.close()
@@ -367,6 +449,7 @@ internal class ChatController(private val act: PlayerActivity) {
     }
 
     private fun receive(m: ChatMessage) {
+        lastLiveAt = System.currentTimeMillis()
         if (!filter.allows(m)) return
         if (!prefs.chatCalm) {
             add(m)
@@ -389,16 +472,32 @@ internal class ChatController(private val act: PlayerActivity) {
         act.ui.postDelayed(drainNext, CALM_INTERVAL_MS)
     }
 
+    /**
+     * Queues [m] for chat. Busy chat would otherwise insert and scroll once per message; instead
+     * whatever arrives within [FLUSH_MS] goes in together, with one scroll.
+     */
     private fun add(m: ChatMessage) {
+        if (!m.isSystem && m.id.isNotEmpty() && adapter.contains(m.id)) return
+        incoming.add(m)
+        if (act.mode != PlayerActivity.Mode.VOD) PhoneChat.record(m)
+        if (!flushPosted) {
+            flushPosted = true
+            act.ui.postDelayed(flushRunnable, FLUSH_MS)
+        }
+    }
+
+    private fun flush() {
+        flushPosted = false
+        if (incoming.isEmpty()) return
         // In a fast chat the slide-ins overlap and rows land on top of each other: only animate
-        // when messages arrive slowly enough for each one to finish.
+        // a lone message arriving after a quiet spell.
         val now = android.os.SystemClock.uptimeMillis()
-        val busy = now - lastAddAt < 400
+        val busy = incoming.size > 1 || now - lastAddAt < 400
         lastAddAt = now
         val wantAnimator = if (busy) null else slideIn
         if (list.itemAnimator !== wantAnimator) list.itemAnimator = wantAnimator
-        adapter.add(m)
-        if (act.mode != PlayerActivity.Mode.VOD) PhoneChat.record(m)
+        adapter.addAll(ArrayList(incoming))
+        incoming.clear()
         if (panel.visibility == View.VISIBLE) list.scrollToPosition(adapter.itemCount - 1)
     }
 
@@ -433,6 +532,8 @@ internal class ChatController(private val act: PlayerActivity) {
         act.findViewById<View>(R.id.chatHeader).setVisible(beside || l.backing >= 50)
         act.controls.btnChat.isActivated = show
         if (show) list.scrollToPosition((adapter.itemCount - 1).coerceAtLeast(0))
+        // Chat just came on screen with a stale poll: check now rather than at the next tick.
+        if (show && liveChannel != null && System.currentTimeMillis() - lastPollCheck >= POLL_CHECK_MS) checkPolls()
         act.controls.setCompact(show && beside)
 
         val chatWidth = act.dp(l.width)

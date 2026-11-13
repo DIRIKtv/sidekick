@@ -18,6 +18,12 @@ object SevenTv {
     @Volatile private var global: Cached? = null
     private val channels = java.util.concurrent.ConcurrentHashMap<Int, Cached>()
 
+    /** Settings → Clear cache. */
+    fun clear() {
+        global = null
+        channels.clear()
+    }
+
     /** 7TV has no account for this channel: a real answer (cached), unlike a failed request. */
     private class NoSet : java.io.IOException()
 

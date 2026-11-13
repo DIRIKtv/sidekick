@@ -48,7 +48,7 @@ internal class SeekPreview(private val act: PlayerActivity, private val frame: F
     }
 
     private fun create(): ExoPlayer {
-        val p = PlayerFactory.create(act.applicationContext)
+        val p = PlayerFactory.create(act.applicationContext, audioFocus = false)
         p.volume = 0f
         p.playWhenReady = false
         p.setSeekParameters(SeekParameters.CLOSEST_SYNC)

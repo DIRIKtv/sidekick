@@ -112,6 +112,21 @@ class GridAdapter(
         notifyItemRangeChanged(0, list.size)
     }
 
+    /**
+     * Fresher copies of cards already showing (viewer counts, titles, thumbnails), matched by
+     * key: those cards redraw in place, nothing moves, and focus stays where it is.
+     */
+    fun refreshItems(fresh: List<GridItem>) {
+        val byKey = fresh.associateBy { it.key }
+        items.forEachIndexed { i, old ->
+            val new = byKey[old.key] ?: return@forEachIndexed
+            if (new != old) {
+                items[i] = new
+                notifyItemChanged(i)
+            }
+        }
+    }
+
     fun append(list: List<GridItem>) {
         val wasEmpty = items.isEmpty()
         val start = items.size
@@ -167,12 +182,30 @@ class GridAdapter(
         v.findViewById<View?>(R.id.thumbFrame)?.clipToOutline = true
         (v.findViewById<View?>(R.id.banner)?.parent as? View)?.clipToOutline = true
         v.findViewById<AspectImageView?>(R.id.avatar)?.ratio = 1f
+        val holder = VH(v)
         if (viewType != 0 && viewType != 4) v.focusZoom(if (viewType == 2) 1.08f else 1.05f) { has ->
             // Live cards carry their channel in the tag (set when bound) for the focus preview.
             (v.getTag(R.id.thumbFrame) as? String)?.let { FocusPreview.onFocus(v, it, has) }
             FocusGlow.onFocus(v, has)
         }
-        return VH(v)
+        // Listeners are set once here; they look up whatever the card shows when pressed.
+        if (viewType != 0) {
+            v.setOnClickListener {
+                val item = holder.item() ?: return@setOnClickListener
+                // A clip remembers its row, so the player can go on to the next one.
+                if (item is GridItem.Clip) Nav.clipRow = items.mapNotNull { (it as? GridItem.Clip)?.clip }
+                onClick(item)
+            }
+            v.setOnLongClickListener { holder.item()?.let { onLongClick?.invoke(it) }; onLongClick != null }
+            // The remote's ☰ button does the same as a long press.
+            v.setOnKeyListener { _, keyCode, event ->
+                if (keyCode == android.view.KeyEvent.KEYCODE_MENU && onLongClick != null) {
+                    if (event.action == android.view.KeyEvent.ACTION_UP) holder.item()?.let(onLongClick)
+                    true
+                } else false
+            }
+        }
+        return holder
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
@@ -190,44 +223,33 @@ class GridAdapter(
             v.translationY = 0f
         }
         if (onNearEnd != null && position >= items.size - 6) v.post { onNearEnd.invoke() }
-        if (item !is GridItem.Header) {
-            v.setOnClickListener { onClick(item) }
-            v.setOnLongClickListener { onLongClick?.invoke(item); onLongClick != null }
-            // The remote's ☰ button does the same as a long press.
-            v.setOnKeyListener { _, keyCode, event ->
-                if (keyCode == android.view.KeyEvent.KEYCODE_MENU && onLongClick != null) {
-                    if (event.action == android.view.KeyEvent.ACTION_UP) onLongClick.invoke(item)
-                    true
-                } else false
-            }
-        }
         when (item) {
             is GridItem.Header -> (v as TextView).text = item.text
             is GridItem.Stream -> {
                 val s = item.stream
-                v.findViewById<ImageView>(R.id.thumb).loadThumb(Img.thumb(s.thumbnail))
-                v.findViewById<ImageView>(R.id.avatar).apply { setVisible(true); loadAvatar(s.avatar, s.username) }
-                v.findViewById<TextView>(R.id.title).text = s.title
-                v.findViewById<TextView>(R.id.channel).text = s.username
-                v.findViewById<TextView>(R.id.category).apply { text = s.category.orEmpty(); setVisible(s.category != null) }
-                v.findViewById<TextView>(R.id.viewers).apply { text = Fmt.viewers(s.viewers); setVisible(true) }
-                v.findViewById<View>(R.id.liveBadge).setVisible(true)
-                v.findViewById<View>(R.id.duration).setVisible(false)
-                v.findViewById<View>(R.id.resumeBar).setVisible(false)
+                holder.thumb?.loadThumb(Img.thumb(s.thumbnail), live = true)
+                holder.avatar?.apply { setVisible(true); loadAvatar(s.avatar, s.username) }
+                holder.title?.text = s.title
+                holder.channel?.text = s.username
+                holder.category?.apply { text = s.category.orEmpty(); setVisible(s.category != null) }
+                holder.viewers?.apply { text = Fmt.viewers(s.viewers); setVisible(true) }
+                holder.liveBadge?.setVisible(true)
+                holder.duration?.setVisible(false)
+                holder.resumeBar?.setVisible(false)
             }
             is GridItem.Vod -> {
                 val video = item.video
-                v.findViewById<ImageView>(R.id.thumb).loadThumb(Img.thumb(video.thumbnail))
-                v.findViewById<View>(R.id.avatar).setVisible(false)
-                v.findViewById<TextView>(R.id.title).text = video.title
-                v.findViewById<TextView>(R.id.channel).text =
+                holder.thumb?.loadThumb(Img.thumb(video.thumbnail), live = video.isLive)
+                holder.avatar?.setVisible(false)
+                holder.title?.text = video.title
+                holder.channel?.text =
                     listOfNotNull(item.channelName, Fmt.ago(video.createdAt), video.views.takeIf { it > 0 }?.let { "${Fmt.count(it)} views" })
                         .filter { it.isNotEmpty() }.joinToString(" • ")
-                v.findViewById<TextView>(R.id.category).apply { text = video.category.orEmpty(); setVisible(video.category != null) }
-                v.findViewById<View>(R.id.viewers).setVisible(false)
-                v.findViewById<View>(R.id.liveBadge).setVisible(false)
-                v.findViewById<TextView>(R.id.duration).apply { text = if (video.isLive) "● Recording" else Fmt.time(video.durationMs); setVisible(true) }
-                v.findViewById<ProgressBar>(R.id.resumeBar).apply {
+                holder.category?.apply { text = video.category.orEmpty(); setVisible(video.category != null) }
+                holder.viewers?.setVisible(false)
+                holder.liveBadge?.setVisible(false)
+                holder.duration?.apply { text = if (video.isLive) "● Recording" else Fmt.time(video.durationMs); setVisible(true) }
+                holder.resumeBar?.apply {
                     max = 1000
                     progress = (item.progress * 1000).toInt()
                     setVisible(item.progress > 0.01f)
@@ -235,29 +257,29 @@ class GridAdapter(
             }
             is GridItem.Clip -> {
                 val c = item.clip
-                v.findViewById<ImageView>(R.id.thumb).loadThumb(c.thumbnail)
-                v.findViewById<ImageView>(R.id.avatar).apply { setVisible(true); loadAvatar(c.channelAvatar, c.channelName) }
-                v.findViewById<TextView>(R.id.title).text = c.title.ifBlank { "Clip" }
-                v.findViewById<TextView>(R.id.channel).text =
+                holder.thumb?.loadThumb(c.thumbnail)
+                holder.avatar?.apply { setVisible(true); loadAvatar(c.channelAvatar, c.channelName) }
+                holder.title?.text = c.title.ifBlank { "Clip" }
+                holder.channel?.text =
                     listOf(c.channelName, "${Fmt.count(c.views)} views", Fmt.ago(c.createdAt)).filter { it.isNotEmpty() }.joinToString(" • ")
-                v.findViewById<TextView>(R.id.category).apply { text = c.category.orEmpty(); setVisible(c.category != null) }
-                v.findViewById<View>(R.id.viewers).setVisible(false)
-                v.findViewById<View>(R.id.liveBadge).setVisible(false)
-                v.findViewById<TextView>(R.id.duration).apply { text = Fmt.time(c.durationMs); setVisible(true) }
-                v.findViewById<View>(R.id.resumeBar).setVisible(false)
+                holder.category?.apply { text = c.category.orEmpty(); setVisible(c.category != null) }
+                holder.viewers?.setVisible(false)
+                holder.liveBadge?.setVisible(false)
+                holder.duration?.apply { text = Fmt.time(c.durationMs); setVisible(true) }
+                holder.resumeBar?.setVisible(false)
             }
             is GridItem.Channel -> {
-                v.findViewById<ImageView>(R.id.avatar).loadAvatar(item.avatar, item.username)
-                v.findViewById<TextView>(R.id.name).text = item.username
-                v.findViewById<TextView>(R.id.followers).text = item.subtitle
-                v.findViewById<View>(R.id.liveBadge).setVisible(item.isLive)
+                holder.avatar?.loadAvatar(item.avatar, item.username)
+                holder.name?.text = item.username
+                holder.followers?.text = item.subtitle
+                holder.liveBadge?.setVisible(item.isLive)
             }
             is GridItem.Cat -> {
-                v.findViewById<ImageView>(R.id.banner).loadThumb(item.category.banner)
-                v.findViewById<TextView>(R.id.name).text = item.category.name
-                v.findViewById<TextView>(R.id.viewers).text = Fmt.viewers(item.category.viewers)
+                holder.banner?.loadThumb(item.category.banner)
+                holder.name?.text = item.category.name
+                holder.viewers?.text = Fmt.viewers(item.category.viewers)
             }
-            is GridItem.Query -> v.findViewById<TextView>(R.id.name).text = item.text
+            is GridItem.Query -> holder.name?.text = item.text
         }
     }
 
@@ -265,5 +287,22 @@ class GridAdapter(
         FocusPreview.onFocus(holder.itemView, "", false)
     }
 
-    class VH(v: View) : RecyclerView.ViewHolder(v)
+    /** A card's views, looked up once when it's made rather than on every bind. */
+    inner class VH(v: View) : RecyclerView.ViewHolder(v) {
+        val thumb: ImageView? = v.findViewById(R.id.thumb)
+        val avatar: ImageView? = v.findViewById(R.id.avatar)
+        val title: TextView? = v.findViewById(R.id.title)
+        val channel: TextView? = v.findViewById(R.id.channel)
+        val category: TextView? = v.findViewById(R.id.category)
+        val viewers: TextView? = v.findViewById(R.id.viewers)
+        val liveBadge: View? = v.findViewById(R.id.liveBadge)
+        val duration: TextView? = v.findViewById(R.id.duration)
+        val resumeBar: ProgressBar? = v.findViewById(R.id.resumeBar)
+        val name: TextView? = v.findViewById(R.id.name)
+        val followers: TextView? = v.findViewById(R.id.followers)
+        val banner: ImageView? = v.findViewById(R.id.banner)
+
+        /** What this card shows now (null while it's being removed). */
+        fun item(): GridItem? = items.getOrNull(bindingAdapterPosition)?.takeIf { it !is GridItem.Header }
+    }
 }

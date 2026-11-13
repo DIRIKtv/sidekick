@@ -43,6 +43,12 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         const val EAGER_ROWS = 4
         /** A row that failed to load tries again at most this often as it scrolls into view. */
         const val ROW_RETRY_MS = 15_000L
+        /** While Home stays on screen, its live cards are brought up to date this often… */
+        const val SOFT_REFRESH_MS = 3 * 60_000L
+        /** …once nobody has moved around it for this long (so nothing changes under the viewer's feet). */
+        const val IDLE_MS = 20_000L
+        /** The saved Home is shown at start-up if it's no older than this. */
+        const val SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60_000L
     }
 
     private val prefs = Prefs(act)
@@ -56,6 +62,11 @@ class HomePage(private val act: FragmentActivity) : MainPage {
 
     /** Called once, when Home has its first content (or gave up): the launch curtain lifts then. */
     var onFirstLoad: (() -> Unit)? = null
+        set(v) {
+            // Already showing the saved Home: that counts.
+            if (v != null && showingSnapshot) v() else field = v
+        }
+    private var showingSnapshot = false
     /** Grab focus as soon as content arrives (startup, or a reload while focused here). */
     private var pendingFocus = true
     /** Settings → Browsing → Card size. */
@@ -212,7 +223,23 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         }
     }
 
+    /** When focus last moved on Home: the in-place refresh waits until it's been still a while. */
+    private var lastMove = 0L
+    private val softTick = object : Runnable {
+        override fun run() {
+            val now = System.currentTimeMillis()
+            val visible = view.isShown && act.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+            if (visible && !loading && rows.isNotEmpty() && now - lastLoad > SOFT_REFRESH_MS && now - lastMove > IDLE_MS) softRefresh()
+            view.postDelayed(this, 30_000)
+        }
+    }
+
     init {
+        view.viewTreeObserver.addOnGlobalFocusChangeListener { _, _ -> lastMove = System.currentTimeMillis() }
+        view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { v.removeCallbacks(softTick); v.postDelayed(softTick, 30_000) }
+            override fun onViewDetachedFromWindow(v: View) { v.removeCallbacks(softTick) }
+        })
         list.layoutManager = TopAlignLayoutManager(act, act.dp(4))
         list.adapter = rowAdapter
         list.setPadding(0, act.dp(18), 0, act.dp(200))
@@ -223,7 +250,75 @@ class HomePage(private val act: FragmentActivity) : MainPage {
         status.setTextColor(act.getColor(R.color.text_secondary))
         status.textSize = 17f
         status.font(AppFonts.Weight.REGULAR)
+        showSnapshot()
     }
+
+    // region instant start and in-place refresh
+
+    private val snapshotFile get() = java.io.File(act.cacheDir, "home.json")
+
+    /**
+     * The Home last seen (its hero and Top live row), shown straight away at start-up while the
+     * fresh one loads, instead of the skeleton. Its cards are replaced as soon as Kick answers.
+     */
+    private fun showSnapshot() {
+        val snap = runCatching {
+            val f = snapshotFile
+            if (!f.exists() || System.currentTimeMillis() - f.lastModified() > SNAPSHOT_MAX_AGE_MS) return
+            HomeSnapshot.parse(f.readText())
+        }.getOrNull() ?: return
+        if (snap.top.isEmpty() && snap.hero.isEmpty()) return
+        heroFromFollows = snap.heroFromFollows
+        heroItems = snap.hero.filterNot { prefs.isHiddenCategory(it.category) }
+        val lang = prefs.language.ifEmpty { null }
+        loadedHistory = historyStamp()
+        rows += historyRows()
+        val top = snap.top.filterNot { prefs.isHiddenCategory(it.category) }
+        if (top.isNotEmpty()) rows += Row(topTitle(lang)) { Page(top.map { GridItem.Stream(it) }, null) }
+        rows.forEach { it.loadMore() }
+        rowAdapter.notifyItemRangeInserted(0, rows.size + heroOffset)
+        progress.setVisible(false)
+        showingSnapshot = true
+        list.post { if (focusContent()) pendingFocus = false }
+        onFirstLoad?.invoke()
+        onFirstLoad = null
+    }
+
+    private fun saveSnapshot(hero: List<LiveStream>, fromFollows: Boolean, top: List<LiveStream>) {
+        val json = HomeSnapshot(hero, fromFollows, top.take(24)).encode()
+        val file = snapshotFile
+        Thread({ runCatching { file.writeText(json) } }, "home-snapshot").start()
+    }
+
+    private fun topTitle(lang: String?) = if (lang == null) "Top live" else "Top live • ${Languages.label(lang)}"
+
+    /**
+     * Home has been on screen a while: viewer counts, titles and thumbnails on its live cards
+     * are brought up to date where they are. Nothing is added, removed or reordered, so focus
+     * and scroll positions stay put.
+     */
+    private fun softRefresh() {
+        lastLoad = System.currentTimeMillis()
+        act.lifecycleScope.launch {
+            val live = runCatching { Follows.liveNow(act) }.getOrNull()
+            if (live != null) {
+                liveSlugs = live.map { it.slug.lowercase() }.toSet()
+                val fresh = live.associateBy { it.slug.lowercase() }
+                val updated = heroItems.map { fresh[it.slug.lowercase()] ?: it }
+                if (updated != heroItems) {
+                    heroItems = updated
+                    if (heroView?.findViewById<View>(R.id.hero)?.isFocused != true) bindHero(animate = false)
+                }
+            }
+            for (row in rows.toList()) {
+                if (row.local || row.adapter.itemCount == 0 || row.adapter.items.none { it is GridItem.Stream }) continue
+                val page = runCatching { row.loader(null) }.getOrNull() ?: continue
+                row.adapter.refreshItems(page.items)
+            }
+        }
+    }
+
+    // endregion
 
     // region hero
 
@@ -436,8 +531,12 @@ class HomePage(private val act: FragmentActivity) : MainPage {
                 val newRows = mutableListOf<Row>()
                 loadedHistory = historyStamp()
                 newRows += historyRows()
-                newRows += Row(if (lang == null) "Top live" else "Top live • ${Languages.label(lang)}") { cursor ->
-                    (if (cursor == null && top != null) top else KickApi.livestreams(cursor = cursor, language = lang)).asCards()
+                saveSnapshot(heroItems, heroFromFollows, top?.items.orEmpty())
+                // The first page is already here; later asks (more cards, an in-place refresh) go to Kick.
+                var firstTop = top
+                newRows += Row(topTitle(lang)) { cursor ->
+                    val ready = if (cursor == null) firstTop.also { firstTop = null } else null
+                    (ready ?: KickApi.livestreams(cursor = cursor, language = lang)).asCards()
                 }
                 if (lang != null) {
                     newRows += Row("Top live • All languages") { KickApi.livestreams(cursor = it).asCards() }
@@ -508,6 +607,36 @@ class HomePage(private val act: FragmentActivity) : MainPage {
 }
 
 private fun Page<LiveStream>.asCards(): Page<GridItem> = Page(items.map { GridItem.Stream(it) }, next)
+
+/** What [HomePage] saves of itself, to show instantly at the next start. */
+private class HomeSnapshot(val hero: List<LiveStream>, val heroFromFollows: Boolean, val top: List<LiveStream>) {
+    fun encode(): String = org.json.JSONObject()
+        .put("hero", streams(hero)).put("follows", heroFromFollows).put("top", streams(top)).toString()
+
+    companion object {
+        private fun streams(list: List<LiveStream>) = org.json.JSONArray().apply {
+            list.forEach { s ->
+                put(org.json.JSONObject().put("slug", s.slug).put("username", s.username).put("title", s.title)
+                    .put("viewers", s.viewers).put("thumbnail", s.thumbnail).put("avatar", s.avatar)
+                    .put("category", s.category).put("language", s.language).put("startTime", s.startTime))
+            }
+        }
+
+        private fun org.json.JSONObject.str(k: String) = if (isNull(k)) null else optString(k).takeIf { it.isNotEmpty() }
+
+        private fun parseStreams(arr: org.json.JSONArray?) = (0 until (arr?.length() ?: 0)).mapNotNull { i ->
+            val o = arr!!.optJSONObject(i) ?: return@mapNotNull null
+            val slug = o.str("slug") ?: return@mapNotNull null
+            LiveStream(slug, o.optString("username", slug), o.optString("title"), o.optInt("viewers"),
+                o.str("thumbnail"), o.str("avatar"), o.str("category"), o.str("language"), o.str("startTime"))
+        }
+
+        fun parse(text: String): HomeSnapshot {
+            val o = org.json.JSONObject(text)
+            return HomeSnapshot(parseStreams(o.optJSONArray("hero")), o.optBoolean("follows"), parseStreams(o.optJSONArray("top")))
+        }
+    }
+}
 
 object Languages {
     val all = listOf(

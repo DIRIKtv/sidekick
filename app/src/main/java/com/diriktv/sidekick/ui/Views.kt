@@ -165,8 +165,21 @@ fun View.focusZoom(scale: Float = 1.06f, extra: ((Boolean) -> Unit)? = null) {
     }
 }
 
-fun ImageView.loadThumb(url: String?) {
-    load(url) { crossfade(150) }
+/**
+ * A card image. [live] thumbnails keep the same address all broadcast while the picture behind it
+ * changes (the server says to re-check after 90s), but the image cache keys on the address and
+ * ignores that: live ones are keyed by the address plus a few-minute time slot, so a card shows a
+ * picture at most [Img.LIVE_THUMB_MS] old.
+ */
+fun ImageView.loadThumb(url: String?, live: Boolean = false) {
+    load(url) {
+        crossfade(150)
+        if (live && url != null) {
+            val key = "$url#${System.currentTimeMillis() / Img.LIVE_THUMB_MS}"
+            memoryCacheKey(key)
+            diskCacheKey(key)
+        }
+    }
 }
 
 /** A round avatar; channels without a picture (or one that won't load) get their initial on a colored disc. */
@@ -278,6 +291,9 @@ object Img {
     /** Set at startup on TVs with little memory: card images come in a size smaller. */
     @Volatile var lowMemory = false
 
+    /** How old a live thumbnail on a card can get before it's fetched again. */
+    const val LIVE_THUMB_MS = 3 * 60_000L
+
     /** Kick thumbnails exist at 160/360/480/720/1080 px wide; ask for the one that fits. */
     fun thumb(url: String?, width: Int = 480): String? =
         url?.replace(sizeRegex, "/${if (lowMemory && width == 480) 360 else width}.webp")
@@ -294,6 +310,14 @@ object Img {
 }
 
 object Fmt {
+    /** "12 MB", "640 KB". */
+    fun bytes(n: Long): String = when {
+        n >= 1_073_741_824 -> String.format(Locale.US, "%.1f GB", n / 1_073_741_824.0)
+        n >= 1_048_576 -> "${(n + 524_288) / 1_048_576} MB"
+        n >= 1024 -> "${(n + 512) / 1024} KB"
+        else -> "$n bytes"
+    }
+
     fun count(n: Int): String = when {
         n >= 1_000_000 -> String.format(Locale.US, "%.1fM", n / 1_000_000.0).replace(".0M", "M")
         n >= 1_000 -> String.format(Locale.US, "%.1fK", n / 1_000.0).replace(".0K", "K")

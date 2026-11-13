@@ -12,8 +12,13 @@ import com.diriktv.sidekick.player.PlayerActivity
 
 object Nav {
     fun watchLive(ctx: Context, slug: String) {
-        FocusPreview.handOff(slug)
-        ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_SLUG, slug))
+        val from = FocusPreview.handOff(slug)
+        // A preview was playing: the full-screen player grows out of that card, so the stream is
+        // seen carrying on rather than cutting to a new screen.
+        val zoom = from?.takeIf { it.isAttachedToWindow && it.width > 0 && !ctx.motionOff() }?.let {
+            android.app.ActivityOptions.makeScaleUpAnimation(it, 0, 0, it.width, it.height).toBundle()
+        }
+        ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_SLUG, slug), zoom)
     }
 
     fun watchVod(ctx: Context, slug: String, video: Video) {
@@ -28,6 +33,19 @@ object Nav {
                 .putExtra(PlayerActivity.EXTRA_VOD_DATE, video.createdAt)
                 .putExtra(PlayerActivity.EXTRA_VOD_CATEGORY, video.category)
         )
+    }
+
+    /**
+     * The clips in the row (or grid) the last clip was opened from, so the player can carry on
+     * with the next one when it finishes.
+     */
+    @Volatile var clipRow: List<Clip> = emptyList()
+
+    /** The clip after [id] in [clipRow], or null at the end (or when it came from elsewhere). */
+    fun clipAfter(id: String?): Clip? {
+        val row = clipRow
+        val i = row.indexOfFirst { it.id == id }
+        return if (i < 0) null else row.getOrNull(i + 1)
     }
 
     fun watchClip(ctx: Context, clip: Clip) {

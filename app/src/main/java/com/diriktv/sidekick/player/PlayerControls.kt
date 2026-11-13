@@ -20,9 +20,7 @@ import com.diriktv.sidekick.ui.fadeIn
 import com.diriktv.sidekick.ui.fadeOut
 import com.diriktv.sidekick.ui.loadAvatar
 import com.diriktv.sidekick.ui.setVisible
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /** The controls overlay: header, seek bar, buttons and their tooltip, plus the on-screen notices. */
 internal class PlayerControls(private val act: PlayerActivity) {
@@ -190,7 +188,10 @@ internal class PlayerControls(private val act: PlayerActivity) {
         updateMeta()
         updateQuality()
         mini.setVisible(false)
-        clock.text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+        // The TV's 12/24-hour setting may have changed since last time.
+        clockFormat = android.text.format.DateFormat.getTimeFormat(act)
+        clockMinute = -1
+        updateClock()
         if (!wasVisible) focus?.requestFocus()
         act.currentFocus?.let { updateTooltip(it) }
         scheduleHide()
@@ -424,13 +425,25 @@ internal class PlayerControls(private val act: PlayerActivity) {
         if (show != (mini.visibility == View.VISIBLE)) if (show) mini.fadeIn(200) else mini.setVisible(false)
     }
 
+    /** In the TV's own 12/24-hour style, like the side menu's clock. */
+    private var clockFormat: java.text.DateFormat = android.text.format.DateFormat.getTimeFormat(act)
+    private var clockMinute = -1L
+
+    /** Only redrawn when the minute changes (it's asked twice a second). */
+    private fun updateClock() {
+        val minute = System.currentTimeMillis() / 60_000
+        if (minute == clockMinute && clock.text.isNotEmpty()) return
+        clockMinute = minute
+        clock.text = clockFormat.format(Date())
+    }
+
     /** Called twice a second. */
     fun tick() {
         updateMini()
         if (!up) return
         updateQuality()
         if (act.pendingSeek == null) updateProgress()
-        clock.text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+        updateClock()
         updateMeta()
     }
 

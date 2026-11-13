@@ -26,6 +26,15 @@ class Prefs(context: Context) {
         fun emoteSizeLabel(scale: Float) = EMOTE_SIZES.firstOrNull { it.first == scale }?.second ?: "Medium"
 
         fun chatWidthLabel(dp: Int) = CHAT_WIDTHS.firstOrNull { it.first == dp }?.second ?: "${dp}dp"
+
+        /** Channels with a chat layout of their own kept at most; the least recently watched go first. */
+        const val MAX_CHAT_LAYOUTS = 40
+        const val MAX_HISTORY = 60
+
+        // Parsed copies of the favourites and history JSON. Every Prefs shares the one preferences
+        // file, so one copy serves them all; a write replaces it.
+        @Volatile private var favoritesCache: List<Favorite>? = null
+        @Volatile private var historyCache: List<HistoryEntry>? = null
     }
 
     private val sp: SharedPreferences = context.getSharedPreferences("sidekick", Context.MODE_PRIVATE)
@@ -52,6 +61,19 @@ class Prefs(context: Context) {
         get() = sp.getInt("chat_text", 15)
         set(v) = sp.edit().putInt("chat_text", v).apply()
 
+    /**
+     * Captions on or off as last chosen in the player; null until the viewer picks, which follows
+     * the TV's own captions setting (Settings → Accessibility → Captions).
+     */
+    var captionsOn: Boolean?
+        get() = if (sp.contains("captions_on")) sp.getBoolean("captions_on", false) else null
+        set(v) = sp.edit().apply { if (v == null) remove("captions_on") else putBoolean("captions_on", v) }.apply()
+
+    /** Language (or label) of the caption track last picked, to pick the same again next time. */
+    var captionLanguage: String?
+        get() = sp.getString("captions_lang", null)
+        set(v) = sp.edit().putString("captions_lang", v).apply()
+
     var lowLatency: Boolean
         get() = sp.getBoolean("low_latency_v2", false)
         set(v) = sp.edit().putBoolean("low_latency_v2", v).apply()
@@ -69,6 +91,9 @@ class Prefs(context: Context) {
             val enc = v?.let { runCatching { SecureStore.encrypt(it) }.getOrNull() }
             sp.edit().remove("session_token").putString("session_token_enc", enc).apply()
         }
+
+    /** A sign-in was saved (without decrypting it, which is slow; see [sessionToken]). */
+    val hasSessionToken get() = sp.getString("session_token_enc", null) != null || sp.contains("session_token")
 
     var accountName: String?
         get() = sp.getString("account_name", null)
@@ -110,6 +135,11 @@ class Prefs(context: Context) {
     var chatCalm: Boolean
         get() = sp.getBoolean("chat_calm", false)
         set(v) = sp.edit().putBoolean("chat_calm", v).apply()
+
+    /** Play animated emotes in chat; off by default on TVs short of memory. */
+    var chatAnimatedEmotes: Boolean
+        get() = sp.getBoolean("chat_animated_emotes", !com.diriktv.sidekick.ui.Img.lowMemory)
+        set(v) = sp.edit().putBoolean("chat_animated_emotes", v).apply()
 
     var sevenTvEmotes: Boolean
         get() = sp.getBoolean("seventv", true)
@@ -216,8 +246,21 @@ class Prefs(context: Context) {
                 x = sp.getInt("chat_x", if (chatSide == "left") 0 else 100), backing = sp.getInt("chat_backing", 60),
                 textSize = sp.getInt("chat_layout_text", 0))
 
-    fun saveChatLayout(slug: String, layout: ChatLayout) =
-        sp.edit().putString("chat_layout_${slug.lowercase()}", layout.encode()).apply()
+    fun saveChatLayout(slug: String, layout: ChatLayout) {
+        val e = sp.edit().putString("chat_layout_${slug.lowercase()}", layout.encode())
+            .putLong("chat_used_${slug.lowercase()}", System.currentTimeMillis())
+        // Keep only the most recently watched channels' layouts.
+        val used = sp.all.keys.filter { it.startsWith("chat_layout_") && it != "chat_layout_text" && it != "chat_layout_${slug.lowercase()}" }
+            .map { it.removePrefix("chat_layout_") }
+            .sortedByDescending { sp.getLong("chat_used_$it", 0L) }
+        used.drop(MAX_CHAT_LAYOUTS - 1).forEach { e.remove("chat_layout_$it").remove("chat_used_$it") }
+        e.apply()
+    }
+
+    /** [slug]'s own chat layout was just used: it's kept ahead of channels not watched lately. */
+    fun touchChatLayout(slug: String) {
+        if (hasChatLayout(slug)) sp.edit().putLong("chat_used_${slug.lowercase()}", System.currentTimeMillis()).apply()
+    }
 
     /** Makes [layout] the default for every channel without one of its own. */
     fun saveDefaultChatLayout(layout: ChatLayout) {
@@ -231,15 +274,31 @@ class Prefs(context: Context) {
 
     fun hasChatLayout(slug: String) = sp.contains("chat_layout_${slug.lowercase()}")
 
-    fun clearChatLayout(slug: String) = sp.edit().remove("chat_layout_${slug.lowercase()}").apply()
+    fun clearChatLayout(slug: String) =
+        sp.edit().remove("chat_layout_${slug.lowercase()}").remove("chat_used_${slug.lowercase()}").apply()
 
-    val channelChatLayouts: Int get() = sp.all.keys.count { it.startsWith("chat_layout_") }
+    val channelChatLayouts: Int get() = sp.all.keys.count { it.startsWith("chat_layout_") && it != "chat_layout_text" }
 
     fun clearChannelChatLayouts() {
         val e = sp.edit()
-        sp.all.keys.filter { it.startsWith("chat_layout_") }.forEach { e.remove(it) }
+        sp.all.keys.filter { (it.startsWith("chat_layout_") && it != "chat_layout_text") || it.startsWith("chat_used_") }.forEach { e.remove(it) }
         e.apply()
     }
+
+    /** How the picture fills the screen: "fit", "fill" (stretched) or "zoom" (cropped). */
+    var pictureSize: String
+        get() = sp.getString("picture_size", "fit") ?: "fit"
+        set(v) = sp.edit().putString("picture_size", v).apply()
+
+    /** The streams last watched together in multi-view, to open again from the player. */
+    var lastMultiView: List<String>
+        get() = sp.getString("multiview_last", null)?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
+        set(v) = sp.edit().putString("multiview_last", v.joinToString(",")).apply()
+
+    /** Multi-view shows one big stream with the others beside it, rather than an even grid. */
+    var multiViewBig: Boolean
+        get() = sp.getBoolean("multiview_big", false)
+        set(v) = sp.edit().putBoolean("multiview_big", v).apply()
 
     /** Pages slide in from the direction you moved in the side menu. */
     var pageTransitions: Boolean
@@ -287,7 +346,15 @@ class Prefs(context: Context) {
     }
 
     var favorites: List<Favorite>
-        get() {
+        get() = favoritesCache ?: readFavorites().also { favoritesCache = it }
+        set(list) {
+            val arr = JSONArray()
+            list.forEach { arr.put(JSONObject().put("slug", it.slug).put("username", it.username).put("avatar", it.avatar)) }
+            favoritesCache = list.toList()
+            sp.edit().putString("favorites", arr.toString()).apply()
+        }
+
+    private fun readFavorites(): List<Favorite> {
             // A damaged value must never take Following (or every follow check) down with it:
             // unreadable entries are skipped, and an unreadable list reads as empty.
             val arr = runCatching { JSONArray(sp.getString("favorites", "[]")) }.getOrNull() ?: return emptyList()
@@ -296,12 +363,7 @@ class Prefs(context: Context) {
                 val slug = o.optStringOrNull("slug") ?: return@mapNotNull null
                 Favorite(slug, o.optString("username", slug), o.optStringOrNull("avatar"))
             }
-        }
-        set(list) {
-            val arr = JSONArray()
-            list.forEach { arr.put(JSONObject().put("slug", it.slug).put("username", it.username).put("avatar", it.avatar)) }
-            sp.edit().putString("favorites", arr.toString()).apply()
-        }
+    }
 
     fun isFavorite(slug: String) = favorites.any { it.slug.equals(slug, true) }
 
@@ -324,22 +386,38 @@ class Prefs(context: Context) {
 
     /** Most recent first. */
     var history: List<HistoryEntry>
-        get() = runCatching {
+        get() = historyCache ?: runCatching {
             val arr = JSONArray(sp.getString("history", "[]"))
             // One damaged entry is skipped rather than emptying the whole history.
             (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { runCatching { HistoryEntry.fromJson(it) }.getOrNull() } }
-        }.getOrDefault(emptyList())
+        }.getOrDefault(emptyList()).also { historyCache = it }
         set(list) {
             val arr = JSONArray()
             list.forEach { arr.put(it.toJson()) }
+            historyCache = list.toList()
             sp.edit().putString("history", arr.toString()).apply()
         }
 
     fun recordHistory(entry: HistoryEntry) {
-        history = (listOf(entry) + history.filter { it.key != entry.key }).take(60)
+        val before = history
+        val after = (listOf(entry) + before.filter { it.key != entry.key }).take(MAX_HISTORY)
+        history = after
+        // A past broadcast that fell off the end of history takes its resume point with it.
+        if (before.any { it.kind == HistoryEntry.VOD && it.videoId != null && after.none { a -> a.key == it.key } }) pruneVodPositions(after)
+    }
+
+    /** Drops saved resume points for videos no longer in [kept] (the history). */
+    fun pruneVodPositions(kept: List<HistoryEntry> = history) {
+        val ids = kept.mapNotNullTo(HashSet()) { it.videoId }
+        val stale = sp.all.keys.filter { it.startsWith("vod_") && it.removePrefix("vod_") !in ids }
+        if (stale.isEmpty()) return
+        val e = sp.edit()
+        stale.forEach { e.remove(it) }
+        e.apply()
     }
 
     fun clearHistory() {
+        historyCache = emptyList()
         val editor = sp.edit().remove("history")
         sp.all.keys.filter { it.startsWith("vod_") }.forEach { editor.remove(it) }
         editor.apply()

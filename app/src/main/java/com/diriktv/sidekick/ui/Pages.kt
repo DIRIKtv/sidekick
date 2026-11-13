@@ -66,6 +66,57 @@ abstract class GridPage(
 class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4) {
     private var job: Job? = null
 
+    /** Follower counts for offline channels, by lowercase slug; looked up as their cards come into view. */
+    private val counts = HashMap<String, com.diriktv.sidekick.data.ChannelInfo>()
+    private val asked = HashSet<String>()
+    private var live: List<com.diriktv.sidekick.data.LiveStream> = emptyList()
+    private var offline: List<com.diriktv.sidekick.data.Favorite> = emptyList()
+    private val applyCounts = Runnable { adapter.refreshItems(build()) }
+
+    init {
+        // Counts are a nicety: only for cards on screen, one or two at a time behind everything
+        // else (so opening a stream never waits on them), and kept a good while.
+        list.addOnChildAttachStateChangeListener(object : RecyclerView.OnChildAttachStateChangeListener {
+            override fun onChildViewAttachedToWindow(view: View) {
+                val item = adapter.items.getOrNull(list.getChildAdapterPosition(view)) as? GridItem.Channel ?: return
+                if (!item.isLive) fetchCount(item.slug)
+            }
+            override fun onChildViewDetachedFromWindow(view: View) {}
+        })
+    }
+
+    private fun fetchCount(slug: String) {
+        val key = slug.lowercase()
+        if (key in counts || !asked.add(key)) return
+        act.lifecycleScope.launch {
+            val c = runCatching { KickApi.channelInBackground(slug, maxAgeMs = 30 * 60_000) }.getOrNull()
+            if (c == null) { asked.remove(key); return@launch }
+            counts[key] = c
+            // Several arrive close together: redraw once.
+            list.removeCallbacks(applyCounts)
+            list.postDelayed(applyCounts, 250)
+        }
+    }
+
+    private fun build(): List<GridItem> {
+        val items = mutableListOf<GridItem>()
+        // Only this TV's favorites are showing: say why the account's are missing.
+        if (Follows.sessionExpired) items += GridItem.Header("Kick sign-in expired • sign in again under Settings → Account to see all your follows")
+        if (live.isNotEmpty()) {
+            items += GridItem.Header("Live now")
+            items += live.map { GridItem.Stream(it) }
+        }
+        if (offline.isNotEmpty()) {
+            items += GridItem.Header("Offline")
+            items += offline.map { fav ->
+                val c = counts[fav.slug.lowercase()]
+                GridItem.Channel(fav.slug, c?.username ?: fav.username, c?.avatar ?: fav.avatar, false,
+                    c?.let { "${Fmt.count(it.followers)} followers" } ?: "Offline")
+            }
+        }
+        return items
+    }
+
     override fun onShown() = refresh()
 
     fun refresh() {
@@ -82,38 +133,13 @@ class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4
                 else "Nothing followed yet.\n\nSign in under Settings to bring your Kick follows,\nor press ♥ in the player or on a channel page."
                 return@launch
             }
-            val live = Follows.liveNow(act)
+            live = Follows.liveNow(act)
             val liveSlugs = live.map { it.slug.lowercase() }.toSet()
-            val offline = favs.filter { it.slug.lowercase() !in liveSlugs }
-            fun build(info: Map<String, com.diriktv.sidekick.data.ChannelInfo>): List<GridItem> {
-                val items = mutableListOf<GridItem>()
-                // Only this TV's favorites are showing: say why the account's are missing.
-                if (Follows.sessionExpired) items += GridItem.Header("Kick sign-in expired • sign in again under Settings → Account to see all your follows")
-                if (live.isNotEmpty()) {
-                    items += GridItem.Header("Live now")
-                    items += live.map { GridItem.Stream(it) }
-                }
-                if (offline.isNotEmpty()) {
-                    items += GridItem.Header("Offline")
-                    items += offline.map { fav ->
-                        val c = info[fav.slug.lowercase()]
-                        GridItem.Channel(fav.slug, c?.username ?: fav.username, c?.avatar ?: fav.avatar, false,
-                            c?.let { "${Fmt.count(it.followers)} followers" } ?: "Offline")
-                    }
-                }
-                return items
-            }
+            offline = favs.filter { it.slug.lowercase() !in liveSlugs }
             val hadFocus = list.hasFocus()
-            adapter.submit(build(emptyMap()))
+            adapter.submit(build())
             progress.setVisible(false)
             if (hadFocus) list.post { focusContent() }
-
-            // Follower counts are a nicety: fetch them afterwards, and keep them a good while.
-            if (offline.isEmpty()) return@launch
-            val info = offline.map { f ->
-                async { runCatching { KickApi.channel(f.slug, maxAgeMs = 30 * 60_000) }.getOrNull() }
-            }.awaitAll().filterNotNull().associateBy { it.slug.lowercase() }
-            if (info.isNotEmpty()) adapter.update(build(info))
         }
     }
 }
@@ -651,6 +677,10 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                     { onOff(prefs.chatTimestamps) }, toggle = { prefs.chatTimestamps }) {
                     prefs.chatTimestamps = !prefs.chatTimestamps
                 },
+                Setting("Animated emotes", { "Play moving emotes in chat. Uses more memory; off by default on smaller TVs." }, R.drawable.ic_emote,
+                    { onOff(prefs.chatAnimatedEmotes) }, toggle = { prefs.chatAnimatedEmotes }) {
+                    prefs.chatAnimatedEmotes = !prefs.chatAnimatedEmotes
+                },
                 Setting("7TV emotes", { "Show channels' 7TV emotes as images" }, R.drawable.ic_emote,
                     { onOff(prefs.sevenTvEmotes) }, toggle = { prefs.sevenTvEmotes }) {
                     prefs.sevenTvEmotes = !prefs.sevenTvEmotes
@@ -757,6 +787,18 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                         prefs.updateSchedule = options[it]
                     }
                 },
+                Setting("Clear cache", { "Saved pictures and lookups, to free up space. They come back as you browse." },
+                    R.drawable.ic_delete, { cacheSize?.let { Fmt.bytes(it) } ?: "…" }) {
+                    OptionSheet.confirm(act, "Clear the cache?", "Uses ${cacheSize?.let { Fmt.bytes(it) } ?: "a little"} now. " +
+                        "Your settings, follows and history stay.", "Clear cache", R.drawable.ic_delete) {
+                        act.lifecycleScope.launch {
+                            com.diriktv.sidekick.data.CacheCleaner.clear(act)
+                            cacheSize = null
+                            measureCache()
+                            android.widget.Toast.makeText(act, "Cache cleared", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
                 Setting("Report a problem", { "Opens a bug report on your phone, with this TV's details (and the last crash, if there was one) filled in" },
                     R.drawable.ic_info, { null }) {
                     val crash = com.diriktv.sidekick.data.CrashReports.pending(act)
@@ -777,6 +819,16 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             )
         },
     )
+
+    /** How much the cache takes, measured off the main thread when Settings opens. */
+    private var cacheSize: Long? = null
+
+    private fun measureCache() {
+        act.lifecycleScope.launch {
+            cacheSize = com.diriktv.sidekick.data.CacheCleaner.size(act)
+            render()
+        }
+    }
 
     private var current: Int = lastSection.coerceIn(0, sections.size - 1)
     private val sectionViews: List<TextView> = sections.mapIndexed { i, sec ->
@@ -1024,7 +1076,10 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
 
     fun onResume() = render()
 
-    override fun onShown() = render()
+    override fun onShown() {
+        render()
+        measureCache()
+    }
 
     override fun focusContent(): Boolean = sectionViews[current].requestFocus()
 }

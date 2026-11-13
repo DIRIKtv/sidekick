@@ -90,18 +90,36 @@ object TvHome {
         io.execute { publishLive(app, follows, top) }
     }
 
+    /**
+     * Brings the row up to date in place: channels still live keep their program (updated),
+     * channels that went offline are removed and new ones added. The launcher keeps its position
+     * in the row, and doesn't flash an empty row between a delete-all and the inserts.
+     */
     private fun publishLive(ctx: Context, follows: List<LiveStream>, top: List<LiveStream>) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         runCatching {
             val id = channelId(ctx) ?: return
             val cr = ctx.contentResolver
-            cr.delete(TvContract.buildPreviewProgramsUriForChannel(id), null, null)
             val seen = HashSet<String>()
             val items = (follows.map { it to true } + top.map { it to false })
                 .filter { seen.add(it.first.slug.lowercase()) }
                 .take(MAX_PROGRAMS)
+            // What's in the row now: provider id (the slug) -> program id. Duplicates get tidied away.
+            val existing = HashMap<String, Long>()
+            val extras = ArrayList<Long>()
+            cr.query(TvContract.buildPreviewProgramsUriForChannel(id),
+                arrayOf(TvContract.PreviewPrograms._ID, TvContract.PreviewPrograms.COLUMN_INTERNAL_PROVIDER_ID), null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val key = c.getString(1)?.lowercase()
+                    if (key == null || existing.put(key, c.getLong(0)) != null) extras += c.getLong(0)
+                }
+            }
+            val wanted = items.map { it.first.slug.lowercase() }.toSet()
+            for ((key, programId) in existing) if (key !in wanted) extras += programId
+            extras.forEach { cr.delete(TvContract.buildPreviewProgramUri(it), null, null) }
             items.forEachIndexed { i, (s, followed) ->
-                cr.insert(TvContract.PreviewPrograms.CONTENT_URI, ContentValues().apply {
+                val values = ContentValues().apply {
                     put(TvContract.PreviewPrograms.COLUMN_CHANNEL_ID, id)
                     put(TvContract.PreviewPrograms.COLUMN_TYPE, TvContract.PreviewPrograms.TYPE_CHANNEL)
                     put(TvContract.PreviewPrograms.COLUMN_TITLE, s.username)
@@ -114,9 +132,12 @@ object TvHome {
                     put(TvContract.PreviewPrograms.COLUMN_INTERACTION_TYPE, TvContract.PreviewPrograms.INTERACTION_TYPE_VIEWERS)
                     put(TvContract.PreviewPrograms.COLUMN_INTERACTION_COUNT, s.viewers.toLong())
                     put(TvContract.PreviewPrograms.COLUMN_INTENT_URI, LinkActivity.watchUri(ctx, s.slug))
-                    put(TvContract.PreviewPrograms.COLUMN_INTERNAL_PROVIDER_ID, s.slug)
+                    put(TvContract.PreviewPrograms.COLUMN_INTERNAL_PROVIDER_ID, s.slug.lowercase())
                     put(TvContract.PreviewPrograms.COLUMN_WEIGHT, items.size - i)
-                })
+                }
+                val programId = existing[s.slug.lowercase()]
+                val updated = programId != null && cr.update(TvContract.buildPreviewProgramUri(programId), values, null, null) > 0
+                if (!updated) cr.insert(TvContract.PreviewPrograms.CONTENT_URI, values)
             }
         }
     }

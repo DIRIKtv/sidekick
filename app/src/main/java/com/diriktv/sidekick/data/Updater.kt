@@ -90,7 +90,18 @@ object Updater {
         context.getSharedPreferences("sidekick", Context.MODE_PRIVATE).edit().putString("update_skipped", version).apply()
     }
 
-    /** Downloads the APK, reporting progress 0–100. */
+    /**
+     * Deletes downloaded update files once they're installed (or older than what's installed);
+     * an APK is tens of megabytes of a TV's small storage.
+     */
+    fun cleanUp(context: Context) {
+        val dir = File(context.cacheDir, "updates")
+        dir.listFiles()?.forEach { f ->
+            val version = f.name.removePrefix("Sidekick-").removeSuffix(".apk")
+            if (!isNewer(version, BuildConfig.VERSION_NAME)) f.delete()
+        }
+    }
+
     /** Downloads the release's APK, reporting bytes done and the total (0 when unknown) as it goes. */
     suspend fun download(context: Context, release: Release, onProgress: (done: Long, total: Long) -> Unit): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }

@@ -42,6 +42,8 @@ data class ChannelInfo(
     val liveThumbnail: String?,
     /** Channel-specific subscriber badges: months required -> image URL. */
     val subscriberBadges: List<Pair<Int, String>> = emptyList(),
+    /** Slow mode, followers-only and so on, as they were when the channel was looked up. */
+    val chatModes: ChatModes = ChatModes(),
 )
 
 data class Video(
