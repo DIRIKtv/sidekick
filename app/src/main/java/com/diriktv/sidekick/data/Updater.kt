@@ -68,6 +68,19 @@ object Updater {
         }
     }
 
+    /** The release notes (markdown) of [version], or null if GitHub doesn't have them. */
+    suspend fun notesFor(version: String): String? = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("https://api.github.com/repos/$REPO/releases/tags/v$version")
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        runCatching {
+            KickApi.http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) null else JSONObject(resp.body?.string().orEmpty()).optString("body").takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
     /**
      * The automatic check when the app opens, following the viewer's schedule (every open, daily
      * or off), skipping a version they chose to skip.

@@ -83,7 +83,7 @@ object KickApi {
     private fun needsAuth(url: HttpUrl): Boolean {
         val path = url.encodedPath
         return path.startsWith("/api/v2/channels/followed") || path.endsWith("/follow") || path == "/api/v1/user" ||
-            path.startsWith("/api/v2/messages/send/")
+            path.startsWith("/api/v2/messages/send/") || path.endsWith("/polls/vote") || path.endsWith("/predictions/vote")
     }
 
     val http: OkHttpClient = OkHttpClient.Builder()
@@ -241,6 +241,7 @@ object KickApi {
     fun clearCaches() {
         channelCache.clear()
         liveCache.clear()
+        lastLiveCache.clear()
     }
 
     /** Live streams sorted by viewers. [language] null means all languages. */
@@ -258,45 +259,11 @@ object KickApi {
                 categoryId?.let { addQueryParameter("category_id", it.toString()) }
                 language?.let { addQueryParameter("language", it) }
             }.build().toString()
-        val data = JSONObject(get(url)).getJSONObject("data")
-        val arr = data.optJSONArray("livestreams") ?: JSONArray()
-        val items = (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            val ch = o.optJSONObject("channel") ?: JSONObject()
-            LiveStream(
-                slug = ch.optString("slug"),
-                username = ch.optString("username", ch.optString("slug")),
-                title = o.optString("title"),
-                viewers = o.optInt("viewer_count"),
-                thumbnail = o.optJSONObject("thumbnail")?.optStringOrNull("src"),
-                avatar = ch.optStringOrNull("profile_pic"),
-                category = o.optJSONObject("category")?.optStringOrNull("name"),
-                language = o.optStringOrNull("language"),
-                startTime = o.optStringOrNull("start_time"),
-            )
-        }.filter { it.slug.isNotEmpty() }
-        val next = data.optJSONObject("pagination")?.optStringOrNull("next_cursor")
-        return Page(items, if (items.isEmpty()) null else next)
+        return KickParse.livestreams(get(url))
     }
 
-    suspend fun categories(page: Int = 1, limit: Int = 32): Page<Category> {
-        val json = JSONObject(get("https://kick.com/api/v1/subcategories?page=$page&limit=$limit"))
-        val arr = json.optJSONArray("data") ?: JSONArray()
-        val items = (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            Category(
-                id = o.optInt("id"),
-                name = o.optString("name"),
-                slug = o.optString("slug"),
-                viewers = o.optInt("viewers"),
-                banner = o.optJSONObject("banner")?.let { b ->
-                    com.diriktv.sidekick.ui.Img.fromSrcset(b.optStringOrNull("responsive"), 340) ?: b.optStringOrNull("url")
-                },
-            )
-        }
-        val next = if (json.optStringOrNull("next_page_url") != null) (page + 1).toString() else null
-        return Page(items, next)
-    }
+    suspend fun categories(page: Int = 1, limit: Int = 32): Page<Category> =
+        KickParse.categories(get("https://kick.com/api/v1/subcategories?page=$page&limit=$limit"), page)
 
     /** Channel details, reusing a lookup from the last [maxAgeMs] (several screens ask for the same ones). */
     suspend fun channel(slug: String, maxAgeMs: Long = 20_000): ChannelInfo {
@@ -315,40 +282,8 @@ object KickApi {
         return fetchChannel(key, low = true).also { channelCache[key] = Cached(System.currentTimeMillis(), it); prune(channelCache) }
     }
 
-    private suspend fun fetchChannel(slug: String, low: Boolean = false): ChannelInfo {
-        val o = JSONObject(get("https://kick.com/api/v2/channels/${path(slug)}", low))
-        val user = o.optJSONObject("user") ?: JSONObject()
-        val live = o.optJSONObject("livestream")
-        val liveCats = live?.optJSONArray("categories")
-        return ChannelInfo(
-            id = o.optInt("id"),
-            userId = o.optInt("user_id", user.optInt("id")),
-            slug = o.optString("slug"),
-            username = user.optString("username", o.optString("slug")),
-            bio = user.optStringOrNull("bio"),
-            avatar = user.optStringOrNull("profile_pic"),
-            banner = o.optJSONObject("banner_image")?.optStringOrNull("url")
-                ?: o.optJSONObject("offline_banner_image")?.optStringOrNull("src"),
-            followers = o.optInt("followers_count"),
-            verified = o.opt("verified").let { it != null && it != JSONObject.NULL && it != false },
-            chatroomId = o.optJSONObject("chatroom")?.optInt("id") ?: 0,
-            chatModes = o.optJSONObject("chatroom")?.let { parseChatModes(it) } ?: ChatModes(),
-            playbackUrl = o.optStringOrNull("playback_url"),
-            isLive = live != null && live.optBoolean("is_live", true),
-            liveTitle = live?.optStringOrNull("session_title"),
-            liveViewers = live?.optInt("viewer_count") ?: 0,
-            liveCategory = if (liveCats != null && liveCats.length() > 0) liveCats.getJSONObject(0).optStringOrNull("name") else null,
-            liveStartTime = live?.optStringOrNull("start_time"),
-            liveThumbnail = live?.optJSONObject("thumbnail")?.optStringOrNull("url"),
-            subscriberBadges = o.optJSONArray("subscriber_badges")?.let { arr ->
-                (0 until arr.length()).mapNotNull { i ->
-                    val b = arr.getJSONObject(i)
-                    val url = b.optJSONObject("badge_image")?.optStringOrNull("src") ?: return@mapNotNull null
-                    b.optInt("months") to url
-                }.sortedBy { it.first }
-            }.orEmpty(),
-        )
-    }
+    private suspend fun fetchChannel(slug: String, low: Boolean = false): ChannelInfo =
+        KickParse.channel(get("https://kick.com/api/v2/channels/${path(slug)}", low))
 
     /**
      * The channel's current broadcast as a card, or null when it's offline. One small call per
@@ -357,20 +292,7 @@ object KickApi {
     suspend fun liveStream(slug: String, username: String, avatar: String?, maxAgeMs: Long = 45_000): LiveStream? {
         val key = slug.lowercase()
         liveCache[key]?.let { if (System.currentTimeMillis() - it.at < maxAgeMs) return it.value }
-        val o = JSONObject(get("https://kick.com/api/v2/channels/${path(key)}/livestream")).optJSONObject("data")
-        val live = o?.let {
-            LiveStream(
-                slug = slug,
-                username = username,
-                title = it.optString("session_title"),
-                viewers = it.optInt("viewers"),
-                thumbnail = it.optJSONObject("thumbnail")?.optStringOrNull("src"),
-                avatar = avatar,
-                category = it.optJSONObject("category")?.optStringOrNull("name"),
-                language = it.optStringOrNull("language"),
-                startTime = it.optStringOrNull("created_at"),
-            )
-        }
+        val live = KickParse.liveStream(get("https://kick.com/api/v2/channels/${path(key)}/livestream"), slug, username, avatar)
         liveCache[key] = Cached(System.currentTimeMillis(), live)
         prune(liveCache)
         return live
@@ -384,82 +306,30 @@ object KickApi {
             .addQueryParameter("time", time)
             .apply { cursor?.let { addQueryParameter("cursor", it) } }
             .build().toString()
-        val json = JSONObject(get(url))
-        val arr = json.optJSONArray("clips") ?: JSONArray()
-        val items = (0 until arr.length()).mapNotNull { i ->
-            val o = arr.getJSONObject(i)
-            val src = o.optStringOrNull("video_url") ?: o.optStringOrNull("clip_url") ?: return@mapNotNull null
-            val ch = o.optJSONObject("channel") ?: JSONObject()
-            Clip(
-                id = o.optString("id"),
-                title = o.optString("title"),
-                source = src,
-                thumbnail = o.optStringOrNull("thumbnail_url"),
-                durationMs = o.optLong("duration") * 1000,
-                views = o.optInt("view_count", o.optInt("views")),
-                createdAt = o.optStringOrNull("created_at"),
-                category = o.optJSONObject("category")?.optStringOrNull("name"),
-                channelSlug = ch.optString("slug"),
-                channelName = ch.optString("username", ch.optString("slug")),
-                channelAvatar = ch.optStringOrNull("profile_picture"),
-            )
-        }.filter { it.channelSlug.isNotEmpty() }
-        val next = json.optStringOrNull("nextCursor")
-        return Page(items, if (items.isEmpty() || next == cursor) null else next)
+        return KickParse.clips(get(url), cursor)
     }
 
-    suspend fun videos(slug: String): List<Video> {
-        val arr = JSONArray(get("https://kick.com/api/v2/channels/${path(slug)}/videos"))
-        return (0 until arr.length()).mapNotNull { i ->
-            val o = arr.getJSONObject(i)
-            val source = o.optStringOrNull("source") ?: return@mapNotNull null
-            val video = o.optJSONObject("video")
-            val cats = o.optJSONArray("categories")
-            Video(
-                uuid = video?.optStringOrNull("uuid") ?: o.optString("slug"),
-                title = o.optString("session_title"),
-                source = source,
-                thumbnail = o.optJSONObject("thumbnail")?.optStringOrNull("src"),
-                durationMs = o.optLong("duration"),
-                views = video?.optInt("views") ?: o.optInt("views"),
-                createdAt = o.optStringOrNull("start_time") ?: o.optStringOrNull("created_at"),
-                category = if (cats != null && cats.length() > 0) cats.getJSONObject(0).optStringOrNull("name") else null,
-                isLive = o.optBoolean("is_live"),
-            )
-        }
+    suspend fun videos(slug: String, low: Boolean = false): List<Video> =
+        KickParse.videos(get("https://kick.com/api/v2/channels/${path(slug)}/videos", low))
+
+    private val lastLiveCache = ConcurrentHashMap<String, Cached<Long?>>()
+
+    /**
+     * When [slug] was last live (UTC ms), from its past broadcasts; looked up behind everything
+     * else and kept for half an hour.
+     */
+    suspend fun lastLive(slug: String): Long? {
+        val key = slug.lowercase()
+        lastLiveCache[key]?.let { if (System.currentTimeMillis() - it.at < 30 * 60_000L) return it.value }
+        val t = KickParse.lastLive(videos(key, low = true))
+        lastLiveCache[key] = Cached(System.currentTimeMillis(), t)
+        return t
     }
 
     suspend fun search(query: String): SearchResults {
         val url = "https://kick.com/api/search".toHttpUrl().newBuilder()
             .addQueryParameter("searched_word", query).build().toString()
-        val json = JSONObject(get(url))
-        val arr = json.optJSONArray("channels") ?: JSONArray()
-        val channels = (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            val user = o.optJSONObject("user") ?: JSONObject()
-            SearchChannel(
-                slug = o.optString("slug"),
-                username = user.optString("username", o.optString("slug")),
-                avatar = user.optStringOrNull("profilePic") ?: user.optStringOrNull("profile_pic"),
-                followers = o.optInt("followers_count", o.optInt("followersCount")),
-                isLive = o.optBoolean("isLive"),
-                verified = o.opt("verified").let { it != null && it != JSONObject.NULL && it != false },
-            )
-        }.filter { it.slug.isNotEmpty() }
-        val cats = json.optJSONArray("categories") ?: JSONArray()
-        val categories = (0 until cats.length()).map { i ->
-            val o = cats.getJSONObject(i)
-            Category(
-                id = o.optInt("id"),
-                name = o.optString("name"),
-                slug = o.optString("slug"),
-                viewers = o.optInt("viewers"),
-                banner = o.optJSONObject("banner")?.let { b ->
-                    com.diriktv.sidekick.ui.Img.fromSrcset(b.optStringOrNull("srcset"), 340) ?: b.optStringOrNull("src")
-                },
-            )
-        }.filter { it.id != 0 }
-        return SearchResults(channels, categories)
+        return KickParse.search(get(url))
     }
 
     /** A Kick emote; [set] is "channel", "global" or "emoji". */
@@ -490,9 +360,12 @@ object KickApi {
     suspend fun emoteUrls(slug: String): List<String> = emotes(slug).map { it.url }
 
     /** Sends [text] to a chatroom as the signed-in account. Returns null on success, else why it failed. */
-    suspend fun sendChat(chatroomId: Int, text: String): String? = withContext(Dispatchers.IO) {
-        val body = JSONObject().put("content", text).put("type", "message").toString()
-            .toRequestBody("application/json".toMediaType())
+    suspend fun sendChat(chatroomId: Int, text: String, replyTo: ChatMessage? = null): String? = withContext(Dispatchers.IO) {
+        val json = JSONObject().put("content", text).put("type", if (replyTo != null) "reply" else "message")
+        if (replyTo != null) json.put("metadata", JSONObject()
+            .put("original_message", JSONObject().put("id", replyTo.id).put("content", replyTo.content))
+            .put("original_sender", JSONObject().put("id", replyTo.senderId).put("username", replyTo.username)))
+        val body = json.toString().toRequestBody("application/json".toMediaType())
         val req = Request.Builder().url("https://kick.com/api/v2/messages/send/$chatroomId").post(body).build()
         runCatching {
             http.newCall(req).execute().use { resp ->
@@ -526,15 +399,8 @@ object KickApi {
     class RecentChat(val pinned: ChatMessage?, val messages: List<ChatMessage>)
 
     /** The pinned message and recent messages of a channel's chat, in one call. */
-    suspend fun recentChat(channelId: Int): RecentChat {
-        val data = JSONObject(get("https://kick.com/api/v2/channels/$channelId/messages")).optJSONObject("data")
-        val pinned = data?.optJSONObject("pinned_message")?.optJSONObject("message")?.let { parseChatMessage(it) }
-        val arr = data?.optJSONArray("messages") ?: JSONArray()
-        val messages = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let { o -> runCatching { parseChatMessage(o) }.getOrNull() } }
-        // Kick lists them newest first.
-        val ordered = messages.sortedBy { it.receivedAt }
-        return RecentChat(pinned, ordered)
-    }
+    suspend fun recentChat(channelId: Int): RecentChat =
+        KickParse.recentChat(get("https://kick.com/api/v2/channels/$channelId/messages"))
 
     /** The message pinned at the top of a channel's chat, or null. */
     suspend fun pinnedMessage(channelId: Int): ChatMessage? = recentChat(channelId).pinned
@@ -546,29 +412,8 @@ object KickApi {
     }
 
     /** The channel's latest prediction (running, locked or recently decided), or null. */
-    suspend fun prediction(slug: String): ChatPoll? {
-        val p = JSONObject(get("https://kick.com/api/v2/channels/${path(slug)}/predictions/latest"))
-            .optJSONObject("data")?.optJSONObject("prediction") ?: return null
-        val outcomes = p.optJSONArray("outcomes") ?: JSONArray()
-        val state = p.optString("state")
-        val decidedAt = com.diriktv.sidekick.ui.Fmt.parseUtc(p.optStringOrNull("updated_at")) ?: 0L
-        // A decided prediction stays up for two minutes so the result can be seen.
-        if (state == "RESOLVED" || state == "CANCELLED") {
-            if (System.currentTimeMillis() - decidedAt > 120_000) return null
-        }
-        val created = com.diriktv.sidekick.ui.Fmt.parseUtc(p.optStringOrNull("created_at")) ?: 0L
-        val ends = created + p.optInt("duration") * 1000L
-        return ChatPoll(
-            kind = ChatPoll.PREDICTION,
-            title = p.optString("title"),
-            options = (0 until outcomes.length()).map { i ->
-                val oc = outcomes.getJSONObject(i)
-                ChatPoll.Option(oc.optString("title"), oc.optLong("total_vote_amount"), oc.optString("id") == p.optString("winning_outcome_id"))
-            },
-            secondsLeft = if (state == "ACTIVE") ((ends - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0) else 0,
-            state = state,
-        )
-    }
+    suspend fun prediction(slug: String, streamStartMs: Long = 0): ChatPoll? =
+        KickParse.prediction(get("https://kick.com/api/v2/channels/${path(slug)}/predictions/latest"), streamStartMs = streamStartMs)
 
     /** The signed-in user for [token], or null if the token isn't valid. */
     suspend fun me(token: String): Pair<String, String?>? = withContext(Dispatchers.IO) {
@@ -612,6 +457,31 @@ object KickApi {
             pages++
         }
         return out.values.toList()
+    }
+
+    /** Votes for answer [index] (0-based, in Kick's order) of the poll running in [slug]'s chat. Returns null, or why it failed. */
+    suspend fun votePoll(slug: String, index: Int): String? =
+        vote("https://kick.com/api/v2/channels/${path(slug)}/polls/vote", JSONObject().put("id", index))
+
+    /** Puts [amount] channel points on [outcomeId] in [slug]'s prediction. Returns null, or why it failed. */
+    suspend fun votePrediction(slug: String, predictionId: String, outcomeId: String, amount: Long): String? =
+        vote("https://kick.com/api/v2/channels/${path(slug)}/predictions/vote",
+            JSONObject().put("prediction_id", predictionId).put("outcome_id", outcomeId).put("amount", amount))
+
+    private suspend fun vote(url: String, body: JSONObject): String? = try {
+        post(url, body)
+        null
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: KickException) {
+        when (e.kind) {
+            KickException.Kind.SIGNED_OUT -> "Your Kick sign-in has expired. Sign in again in Settings → Account."
+            KickException.Kind.RATE_LIMITED -> "Too many tries. Wait a moment."
+            else -> if (e.code in 400..499) "Kick didn't take the vote. Voting may have closed, or you've already voted."
+                else "Kick couldn't take the vote right now."
+        }
+    } catch (e: Exception) {
+        "Couldn't reach Kick. Check your internet connection."
     }
 
     /** Follows or unfollows [slug] on the signed-in account. Throws when Kick doesn't accept it. */

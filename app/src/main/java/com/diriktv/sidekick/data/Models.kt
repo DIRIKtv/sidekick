@@ -44,6 +44,8 @@ data class ChannelInfo(
     val subscriberBadges: List<Pair<Int, String>> = emptyList(),
     /** Slow mode, followers-only and so on, as they were when the channel was looked up. */
     val chatModes: ChatModes = ChatModes(),
+    /** The channel's links (Instagram, X, YouTube…): name and address. */
+    val socials: List<Pair<String, String>> = emptyList(),
 )
 
 data class Video(

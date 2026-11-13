@@ -54,7 +54,9 @@ object PhoneChat {
         set(v) {
             if (v?.slug != field?.slug) {
                 // Another channel: nothing from the last one is needed any more.
-                synchronized(recent) { recent.clear(); seqOf.clear(); (recent as Object).notifyAll() }
+                synchronized(recent) { recent.clear(); seqOf.clear(); deletions.clear(); (recent as Object).notifyAll() }
+                poll = null
+                modes = ChatModes()
                 if (emoteCache?.slug?.equals(v?.slug, true) != true) emoteCache = null
             }
             field = v
@@ -63,6 +65,35 @@ object PhoneChat {
     private val recent = ArrayDeque<ChatMessage>()
     private var seq = 0L
     private val seqOf = HashMap<String, Long>()
+    /** Messages moderators removed (or of someone banned): seq and message id, so phones remove them too. */
+    private val deletions = ArrayDeque<Pair<Long, String>>()
+
+    /** The poll or prediction showing above chat on the TV, shown (and voted in) on the phone too. */
+    @Volatile var poll: ChatPoll? = null
+        set(v) {
+            if (v == field) return
+            field = v
+            bump()
+        }
+
+    /** Chat's restrictions, to explain why a message didn't go through. */
+    @Volatile var modes: ChatModes = ChatModes()
+
+    /** Something changed that isn't a new message: wake phones waiting for news. */
+    private fun bump() {
+        synchronized(recent) { seq++; (recent as Object).notifyAll() }
+    }
+
+    /** A moderator deleted message [id]: it goes from phones too. */
+    fun delete(id: String) {
+        synchronized(recent) {
+            recent.removeAll { it.id == id }
+            seqOf.remove(id)
+            deletions.addLast(++seq to id)
+            while (deletions.size > 200) deletions.removeFirst()
+            (recent as Object).notifyAll()
+        }
+    }
 
     private val server = LocalHttp.Server("phone-chat") { handle(it) }
     @Volatile private var secret = ""
@@ -98,7 +129,9 @@ object PhoneChat {
         synchronized(recent) {
             val gone = recent.filter { it.username.equals(username, true) }
             recent.removeAll(gone)
-            gone.forEach { seqOf.remove(it.id) }
+            gone.forEach { seqOf.remove(it.id); deletions.addLast(++seq to it.id) }
+            while (deletions.size > 200) deletions.removeFirst()
+            (recent as Object).notifyAll()
         }
     }
 
@@ -189,14 +222,36 @@ object PhoneChat {
                 LocalHttp.respond(s, 200, "application/json", state(after).toString())
             }
             req.method == "POST" && req.path == "/send" -> {
-                val text = runCatching { JSONObject(req.body).optString("text") }.getOrNull().orEmpty().trim().take(500)
+                val body = runCatching { JSONObject(req.body) }.getOrNull()
+                val text = body?.optString("text").orEmpty().trim().take(500)
+                // Replying to a message: only one still in the recent list (its details come from here, not the phone).
+                val replyId = body?.optJSONObject("reply")?.optStringOrNull("id")
+                val replyTo = replyId?.let { id -> synchronized(recent) { recent.firstOrNull { it.id == id } } }
                 val t = target
                 val error = when {
                     !sends.allow() -> "You're sending messages too fast. Wait a moment."
                     text.isEmpty() -> "Type a message first."
                     t == null -> "Nothing is playing on your TV right now."
                     KickApi.authToken == null -> "Sign in to Kick on your TV first (Settings → Account)."
-                    else -> runBlocking { KickApi.sendChat(t.chatroomId, text) }
+                    else -> runBlocking { KickApi.sendChat(t.chatroomId, text, replyTo) }?.let { explain(it) }
+                }
+                LocalHttp.respond(s, 200, "application/json", JSONObject().put("ok", error == null).put("error", error).toString())
+            }
+            req.method == "POST" && req.path == "/vote" -> {
+                val body = runCatching { JSONObject(req.body) }.getOrNull()
+                val i = body?.optInt("i", -1) ?: -1
+                val p = poll
+                val t = target
+                val error = when {
+                    !sends.allow() -> "Too many tries. Wait a moment."
+                    t == null || p == null || p.state != "ACTIVE" -> "Voting has closed."
+                    KickApi.authToken == null -> "Sign in to Kick on your TV first (Settings → Account)."
+                    i !in p.options.indices -> "Pick an answer."
+                    p.kind == ChatPoll.PREDICTION -> {
+                        val amount = body?.optLong("amount") ?: 0
+                        if (amount <= 0) "Choose how many points." else runBlocking { KickApi.votePrediction(t.slug, p.id, p.options[i].id, amount) }
+                    }
+                    else -> runBlocking { KickApi.votePoll(t.slug, i) }
                 }
                 LocalHttp.respond(s, 200, "application/json", JSONObject().put("ok", error == null).put("error", error).toString())
             }
@@ -223,9 +278,30 @@ object PhoneChat {
         }
     }
 
+    /** A failed send, with chat's restrictions added when they're the likely reason. */
+    private fun explain(error: String): String {
+        val m = modes
+        val why = listOfNotNull(
+            if (m.slowSeconds > 0) "slow mode is on (one message every ${m.slowSeconds}s)" else null,
+            if (m.followersOnly) "only followers can chat" + (if (m.followMinutes > 0) " after following for ${m.followMinutes} minutes" else "") else null,
+            if (m.subsOnly) "only subscribers can chat" else null,
+            if (m.emotesOnly) "chat is emotes only" else null,
+        )
+        return if (why.isEmpty()) error else "$error Right now ${why.joinToString(", and ")}."
+    }
+
+    private fun pollJson(p: ChatPoll?): JSONObject? = p?.let {
+        JSONObject().put("kind", it.kind).put("title", it.title).put("state", it.state).put("left", it.secondsLeftNow())
+            .put("total", it.total).put("vote", it.state == "ACTIVE" && KickApi.authToken != null)
+            .put("options", JSONArray().apply {
+                it.options.forEach { o -> put(JSONObject().put("l", o.label).put("a", o.amount).put("w", o.won)) }
+            })
+    }
+
     private fun state(after: Long): JSONObject {
         val t = target
         val messages = JSONArray()
+        val deleted = JSONArray()
         var last = after
         var reset = false
         synchronized(recent) {
@@ -237,13 +313,18 @@ object PhoneChat {
                 last = maxOf(last, n)
                 // The colour lands in a style attribute on the phone: only a plain #rrggbb gets through.
                 val color = m.color?.takeIf { COLOR.matches(it) }
-                messages.put(JSONObject().put("u", m.username).put("c", color).put("t", m.content).put("b", badges(m, t)))
+                messages.put(JSONObject().put("id", m.id).put("u", m.username).put("c", color).put("t", m.content).put("b", badges(m, t))
+                    .put("r", m.replyTo))
             }
+            for ((n, id) in deletions) if (n > after && !reset) deleted.put(id)
+            last = maxOf(last, seq)
         }
         return JSONObject()
             .put("signedIn", KickApi.authToken != null)
             .put("channel", t?.let { JSONObject().put("name", it.username).put("avatar", it.avatar) })
             .put("messages", messages)
+            .put("deleted", deleted)
+            .put("poll", pollJson(poll))
             .put("last", last)
             .put("reset", reset)
     }
@@ -296,7 +377,16 @@ header{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var
 header img{width:36px;height:36px;border-radius:50%;background:var(--s2);object-fit:cover}
 .who{font-weight:700}.sub{font-size:13px;color:var(--t2)}
 #log{flex:1;overflow-y:auto;padding:10px 16px}
-.m{padding:3px 0;word-wrap:break-word}.m b{font-weight:700}.m img{height:1.6em;vertical-align:middle}
+.m{padding:3px 0;word-wrap:break-word;cursor:pointer}.m b{font-weight:700}.m img{height:1.6em;vertical-align:middle}
+.m.mine{background:rgba(83,252,24,.12);border-radius:6px}.m .rt{display:block;font-size:12px;color:var(--t2)}
+#rp,#ac{display:flex;gap:8px;align-items:center;padding:8px 12px 0;background:var(--s);font-size:14px;color:var(--t2);overflow-x:auto;scrollbar-width:none}
+#rp span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#rp button,#ac button{height:34px;padding:0 12px;font-size:14px}
+#ac button{flex:none;display:flex;gap:6px;align-items:center;background:var(--s2);color:var(--t);font-weight:600}#ac img{height:22px}
+#pl{margin:8px 12px 0;padding:10px 12px;border-radius:12px;background:var(--s2)}
+#pl .h{font:700 11px system-ui;letter-spacing:.08em;color:var(--g)}#pl .q{font-weight:700;margin:2px 0 6px}
+#pl .o{position:relative;display:block;width:100%;height:34px;margin-top:5px;padding:0 10px;border:0;border-radius:17px;background:#ffffff22;color:var(--t);font:600 14px system-ui;text-align:left;overflow:hidden}
+#pl .o i{position:absolute;left:0;top:0;bottom:0;background:#ffffff55;border-radius:17px;transition:width .5s}#pl .o.lead i{background:var(--g)}
+#pl .o span{position:relative}#pl .o em{position:absolute;right:10px;top:8px;font-style:normal}#pl .amt{display:flex;gap:6px;margin-top:6px}#pl .amt button{flex:1;height:34px;padding:0}
 .m .bd{height:1.15em;margin-right:3px;vertical-align:-.15em}
 #qe{display:flex;gap:6px;overflow-x:auto;padding:8px 12px 0;background:var(--s);scrollbar-width:none}
 #qe::-webkit-scrollbar{display:none}
@@ -315,10 +405,13 @@ button:disabled{opacity:.5}.hide{display:none}
 <header><img id="av" alt=""><div><div class="who" id="who">Sidekick</div><div class="sub" id="sub">Connecting to your TV…</div></div></header>
 <div id="log"></div>
 <div id="note" class="note hide"></div>
+<div id="pl" class="hide"></div>
+<div id="rp" class="hide"><span id="rpt"></span><button type="button" id="rpx">✕</button></div>
+<div id="ac" class="hide"></div>
 <div id="qe" class="hide"></div>
 <form id="f"><input id="t" placeholder="Send a message" autocomplete="off" maxlength="500" enterkeyhint="send"><button id="b">Send</button></form>
 <script>
-var k=new URLSearchParams(location.search).get('k'),last=0,started=0,channel=null,stv={},kick=[],tab='channel',picked={};
+var k=new URLSearchParams(location.search).get('k'),last=0,started=0,channel=null,stv={},kick=[],tab='channel',picked={},names=[],reply=null,pollKey='',pick=-1;
 function g(i){return document.getElementById(i)}
 function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 // Kick emotes arrive as [emote:id:name]; 7TV emotes are plain words that match the channel's set.
@@ -345,12 +438,49 @@ function bar(){var q=g('qe');q.innerHTML='';var sets=[['channel','Channel'],['gl
 function encode(t){return t.replace(/:([A-Za-z0-9_]+):/g,function(all,n){return own(picked,n)?picked[n]:all})}
 function note(text,err){var n=g('note');n.textContent=text||'';n.classList.toggle('hide',!text);n.classList.toggle('err',!!err)}
 function add(m){var log=g('log'),stick=log.scrollHeight-log.scrollTop-log.clientHeight<60,d=document.createElement('div');d.className='m';
- d.innerHTML=badges(m.b)+'<b style="color:'+color(m.c)+'">'+esc(m.u)+'</b>: '+render(m.t);log.appendChild(d);
+ d.dataset.id=m.id||'';
+ d.innerHTML=(m.r?'<span class="rt">↪ @'+esc(m.r)+'</span>':'')+badges(m.b)+'<b style="color:'+color(m.c)+'">'+esc(m.u)+'</b>: '+render(m.t);
+ // Tap a message to reply to it.
+ d.onclick=function(){if(g('t').disabled||!m.id)return;reply=m;g('rpt').textContent='Replying to @'+m.u+': '+m.t.replace(/\[emote:\d+:([^\]]*)\]/g,'$1');
+  g('rp').classList.remove('hide');g('t').focus()};
+ log.appendChild(d);names=[m.u].concat(names.filter(function(n){return n!==m.u})).slice(0,200);
  while(log.children.length>150)log.removeChild(log.firstChild);if(stick)log.scrollTop=log.scrollHeight}
+g('rpx').onclick=function(){reply=null;g('rp').classList.add('hide')};
+// Suggestions for the word being typed: @names from chat, or emotes by name.
+function suggest(){var t=g('t'),w=(t.value.match(/(\S+)$/)||[])[1]||'',ac=g('ac');ac.innerHTML='';var out=[];
+ if(w[0]==='@'&&w.length>1){var p=w.slice(1).toLowerCase();names.filter(function(n){return n.toLowerCase().indexOf(p)===0}).slice(0,8)
+  .forEach(function(n){out.push({label:'@'+n,word:'@'+n})})}
+ else if(w.length>=2&&w[0]!==':'){var q=w.toLowerCase();
+  kick.filter(function(e){return e.n.toLowerCase().indexOf(q)===0}).slice(0,6).forEach(function(e){out.push({label:e.n,img:'https://files.kick.com/emotes/'+e.id+'/fullsize',word:':'+e.n+':',kick:e})});
+  Object.keys(stv).filter(function(n){return n.toLowerCase().indexOf(q)===0}).slice(0,6).forEach(function(n){out.push({label:n,img:stv[n],word:n})})}
+ out.slice(0,10).forEach(function(o){var b=document.createElement('button');b.type='button';
+  b.innerHTML=(o.img?'<img alt="" src="'+esc(o.img)+'">':'')+esc(o.label);
+  b.onclick=function(){if(o.kick)picked[o.kick.n]='[emote:'+o.kick.id+':'+o.kick.n+']';t.value=t.value.replace(/(\S+)$/,o.word)+' ';t.focus();suggest()};ac.appendChild(b)});
+ ac.classList.toggle('hide',!out.length)}
+g('t').oninput=suggest;
+// The poll or prediction above chat on the TV; tap an answer to vote (a prediction then asks how many points).
+function showPoll(p){var el=g('pl');if(!p){el.classList.add('hide');el.innerHTML='';pollKey='';return}
+ var key=p.kind+p.title+p.options.map(function(o){return o.l}).join('|');var pred=p.kind==='prediction';
+ if(key!==pollKey){pollKey=key;pick=-1;el.innerHTML='<div class="h"></div><div class="q"></div>'+p.options.map(function(o,i){
+  return '<button type="button" class="o" data-i="'+i+'"><i></i><span>'+esc(o.l)+'</span><em></em></button>'}).join('')+'<div class="amt hide"></div>';
+  el.querySelector('.q').textContent=p.title;
+  el.querySelectorAll('.o').forEach(function(b){b.onclick=function(){if(!p.vote)return;var i=+b.dataset.i;
+   if(!pred)return vote({i:i});pick=i;var a=el.querySelector('.amt');a.classList.remove('hide');a.innerHTML='';
+   [100,500,1000,5000].forEach(function(n){var x=document.createElement('button');x.type='button';x.textContent=n+' pts';x.onclick=function(){vote({i:pick,amount:n})};a.appendChild(x)})}})}
+ var lead=Math.max.apply(null,p.options.map(function(o){return o.a}));
+ el.querySelector('.h').textContent=(pred?'PREDICTION':'POLL')+(p.state!=='ACTIVE'?' • '+p.state:'')+(p.left>0?' • '+Math.floor(p.left/60)+':'+('0'+p.left%60).slice(-2)+' left':'')+(p.vote?' • tap to vote':'');
+ el.querySelectorAll('.o').forEach(function(b,i){var o=p.options[i],pc=p.total>0?Math.round(o.a*100/p.total):0;
+  b.querySelector('i').style.width=pc+'%';b.querySelector('em').textContent=pc+'%';b.classList.toggle('lead',o.w||(o.a===lead&&o.a>0))});
+ el.classList.remove('hide')}
+function vote(body){fetch('/vote?k='+k,{method:'POST',body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(r){
+ note(r.ok?'Vote sent.':r.error,!r.ok);g('pl').querySelector('.amt')&&g('pl').querySelector('.amt').classList.add('hide')}).catch(function(){note("Couldn't reach your TV.",true)})}
 function poll(){fetch('/state?k='+k+'&wait='+(started?1:0)+'&after='+last).then(function(r){return r.json()}).then(function(s){
  var name=s.channel&&s.channel.name;
- if(name!==channel){channel=name;g('log').innerHTML='';picked={};tab='channel';loadEmotes();}
+ if(name!==channel){channel=name;g('log').innerHTML='';picked={};names=[];reply=null;g('rp').classList.add('hide');tab='channel';loadEmotes();}
  if(s.reset)g('log').innerHTML='';
+ // Removed by a moderator (or the sender was banned) on Kick: gone here too.
+ (s.deleted||[]).forEach(function(id){var e=g('log').querySelector('[data-id="'+CSS.escape(id)+'"]');if(e)e.remove()});
+ showPoll(s.poll);
  g('who').textContent=name||'Sidekick';g('av').src=(s.channel&&s.channel.avatar)||'';
  g('sub').textContent=name?'Chatting on your TV':'Nothing playing on your TV';
  s.messages.forEach(add);last=s.last;
@@ -360,8 +490,8 @@ function poll(){fetch('/state?k='+k+'&wait='+(started?1:0)+'&after='+last).then(
  else if(!g('note').classList.contains('err'))note('');
  started=1;setTimeout(poll,150)}).catch(function(){g('sub').textContent="Can't reach your TV. Is your phone on the same Wi-Fi?";setTimeout(poll,3000)})}
 g('f').onsubmit=function(e){e.preventDefault();var t=g('t').value.trim();if(!t)return;g('b').disabled=true;
- fetch('/send?k='+k,{method:'POST',body:JSON.stringify({text:encode(t)})}).then(function(r){return r.json()}).then(function(r){
-  g('b').disabled=false;if(r.ok){g('t').value='';note('')}else note(r.error,true)}).catch(function(){g('b').disabled=false;note("Couldn't reach your TV.",true)})};
+ fetch('/send?k='+k,{method:'POST',body:JSON.stringify({text:encode(t),reply:reply?{id:reply.id}:null})}).then(function(r){return r.json()}).then(function(r){
+  g('b').disabled=false;if(r.ok){g('t').value='';note('');reply=null;g('rp').classList.add('hide');g('ac').classList.add('hide')}else note(r.error,true)}).catch(function(){g('b').disabled=false;note("Couldn't reach your TV.",true)})};
 poll();
 </script></body></html>
 """

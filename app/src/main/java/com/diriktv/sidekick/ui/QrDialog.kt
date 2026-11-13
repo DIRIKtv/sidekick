@@ -12,7 +12,7 @@ import com.diriktv.sidekick.R
 
 /** A QR code with a title and a few words, for handing a link over to a phone (same look as phone chat). */
 object QrDialog {
-    fun show(act: Activity, title: String, body: String, url: String, shownUrl: String? = null, onDismiss: () -> Unit = {}) {
+    fun show(act: Activity, title: String, body: String, url: String, shownUrl: String? = null, onDismiss: () -> Unit = {}): ComponentDialog {
         @android.annotation.SuppressLint("InflateParams") // a dialog's content: it has no parent yet
         val root = LayoutInflater.from(act).inflate(R.layout.dialog_phone_chat, null)
         root.findViewById<TextView>(R.id.title).text = title
@@ -38,5 +38,6 @@ object QrDialog {
         card.scaleX = 0.96f
         card.scaleY = 0.96f
         card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180).start()
+        return dialog
     }
 }

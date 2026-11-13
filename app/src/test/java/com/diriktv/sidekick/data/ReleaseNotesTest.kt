@@ -47,3 +47,24 @@ class ReleaseNotesTest {
         assertEquals("A newer version of Sidekick is ready.", ReleaseNotes.forTv("   \n"))
     }
 }
+
+class WhatsNewTest {
+    @Test
+    fun boldLeadInsBecomeTitles() {
+        val md = """
+            ### <img src="x.png"> New
+            - **Live now, one press away:** press ▼ while watching to see who's live
+            - **Picture size:** Fit, Stretch or Zoom
+            ### <img src="y.png"> Fixed
+            - The player clock ignored your TV's 24-hour setting
+            ---
+            - install step that isn't a change
+        """.trimIndent()
+        val c = com.diriktv.sidekick.data.ReleaseNotes.whatsNew(md)
+        org.junit.Assert.assertEquals(3, c.size)
+        org.junit.Assert.assertEquals("Live now, one press away", c[0].title)
+        org.junit.Assert.assertEquals("press ▼ while watching to see who's live", c[0].detail)
+        org.junit.Assert.assertEquals("The player clock ignored your TV's 24-hour setting", c[2].title)
+        org.junit.Assert.assertNull(c[2].detail)
+    }
+}

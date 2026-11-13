@@ -72,6 +72,10 @@
 
         <TextView android:id="@+id/btnWatch" style="@style/Pill" android:drawableStart="@drawable/ic_play" android:text="Watch live" />
         <TextView android:id="@+id/btnFav" style="@style/Pill" android:drawableStart="@drawable/ic_heart_outline" android:text="Favorite" />
+        <!-- Go-live alerts for this channel (shown while it's followed). -->
+        <TextView android:id="@+id/btnAlerts" style="@style/Pill" android:drawableStart="@drawable/ic_broadcast" android:text="Alerts on" android:visibility="gone" />
+        <!-- The channel's bio and links. -->
+        <TextView android:id="@+id/btnAbout" style="@style/Pill" android:drawableStart="@drawable/ic_info" android:text="About" android:visibility="gone" />
     </LinearLayout>
 
     <!-- What the grid below shows; the open tab stays highlighted. -->
@@ -84,6 +88,8 @@
 
         <TextView android:id="@+id/tabVods" style="@style/ChannelTab" android:text="Past broadcasts" />
         <TextView android:id="@+id/tabClips" style="@style/ChannelTab" android:text="Clips" />
+        <!-- On the Clips tab: which clips (top of the day, week, month or all time). -->
+        <TextView android:id="@+id/clipSort" style="@style/ChannelTab" android:text="All time" android:visibility="gone" />
     </LinearLayout>
 
     <TextView

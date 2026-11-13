@@ -1,0 +1,34 @@
+{
+ "data": {
+  "prediction": {
+   "id": "01M78CA12JKTEVZD8D74YT43BB",
+   "channel_id": 1770127,
+   "title": "More white or black wins (tie = refund)",
+   "outcomes": [
+    {
+     "id": "01M78CA12JKTEVZD8D752PFSE1",
+     "title": "More White wins",
+     "total_vote_amount": 50165,
+     "vote_count": 38,
+     "return_rate": 1.6424,
+     "top_users": []
+    },
+    {
+     "id": "01M78CA12JKTEVZD8D76DRFQZP",
+     "title": "More Black wins",
+     "total_vote_amount": 32226,
+     "vote_count": 24,
+     "return_rate": 2.5566623,
+     "top_users": []
+    }
+   ],
+   "duration": 1800,
+   "created_at": "2026-11-12T17:18:55Z",
+   "updated_at": "2026-11-12T23:51:38Z",
+   "locked_at": "2026-11-12T17:48:55Z",
+   "state": "RESOLVED",
+   "winning_outcome_id": "01M78CA12JKTEVZD8D76DRFQZP"
+  }
+ },
+ "message": "Success"
+}

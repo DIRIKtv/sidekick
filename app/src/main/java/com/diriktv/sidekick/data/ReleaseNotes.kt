@@ -15,6 +15,23 @@ object ReleaseNotes {
         return if (text.length > MAX_CHARS) text.take(MAX_CHARS - 3) + "…" else text.ifEmpty { "A newer version of Sidekick is ready." }
     }
 
+    /** One change in What's new: its short name (the bold lead-in, if any) and the rest. */
+    data class Change(val title: String, val detail: String?)
+
+    /**
+     * Every "- " item above the install instructions, for the What's new sheet: "**Name:** what
+     * it does" becomes a title and a detail; a plain item is just a title.
+     */
+    fun whatsNew(markdown: String): List<Change> =
+        markdown.lines().map { it.trim() }.takeWhile { it != "---" }
+            .filter { it.startsWith("- ") || it.startsWith("* ") }
+            .map { it.drop(2) }
+            .map { item ->
+                val m = Regex("""^\*\*(.+?)\*\*\s*(.*)$""").find(item)
+                if (m != null) Change(plain(m.groupValues[1]).trim().trimEnd(':'), plain(m.groupValues[2]).trim().ifEmpty { null })
+                else Change(plain(item), null)
+            }
+
     /** Strips **bold**, `code` and [links](url) down to their text. */
     private fun plain(s: String) = s
         .replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1")

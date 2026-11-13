@@ -92,7 +92,15 @@ internal class ChatController(private val act: PlayerActivity) {
     }
 
     /** Chat is on screen: live, or replaying a past broadcast's chat, and not in picture-in-picture. */
-    val shown get() = wanted && (act.mode != PlayerActivity.Mode.VOD || canReplay) && !act.inPip
+    val shown get() = wanted && (act.mode != PlayerActivity.Mode.VOD || canReplay) && !act.inPip && !covered
+
+    /** Something (the ▼ live rail) has the screen for a moment: chat steps aside, then comes back. */
+    var covered = false
+        set(value) {
+            if (field == value) return
+            field = value
+            applyLayout(animate = true)
+        }
 
     // region replay: a past broadcast's chat, played back in step with the video
 
@@ -210,7 +218,7 @@ internal class ChatController(private val act: PlayerActivity) {
                 appKey = key,
                 cluster = cluster,
                 onMessage = { receive(it) },
-                onDeleted = { id -> backlog.removeAll { it.id == id }; adapter.remove(id) },
+                onDeleted = { id -> backlog.removeAll { it.id == id }; incoming.removeAll { it.id == id }; adapter.remove(id); PhoneChat.delete(id) },
                 onStatus = { system(it) },
                 channelId = c.id,
                 onRaid = { act.onRaid(it) },
@@ -260,6 +268,7 @@ internal class ChatController(private val act: PlayerActivity) {
 
     /** A small line under the chat title when chat is restricted (slow mode, followers-only…). */
     private fun showModes() {
+        if (act.mode != PlayerActivity.Mode.VOD) PhoneChat.modes = modes
         val text = modes.describe()?.takeIf { act.mode != PlayerActivity.Mode.VOD }
         modesView.setVisible(text != null)
         modesView.text = text
@@ -343,50 +352,109 @@ internal class ChatController(private val act: PlayerActivity) {
         lastPollCheck = System.currentTimeMillis()
         act.lifecycleScope.launch {
             val p = runCatching { KickApi.poll(c.slug) }.getOrNull()
-                ?: runCatching { KickApi.prediction(c.slug) }.getOrNull()
+                ?: runCatching { KickApi.prediction(c.slug, com.diriktv.sidekick.ui.Fmt.parseUtc(c.liveStartTime) ?: 0) }.getOrNull()
             if (liveChannel?.id != c.id) return@launch
             poll = p
             showPoll()
         }
     }
 
-    /** The poll or prediction card: its question, then each answer with a bar of its share. */
+    /** The poll card's top line, kept to update the countdown in place. */
+    private var pollHead: android.widget.TextView? = null
+    /** Which poll the card shows now (kind + title + answers), to tell an update from a new poll. */
+    private var pollShown: String? = null
+
+    /** Ticks the poll's time left down every second, between Kick's updates. */
+    private val pollCountdown = object : Runnable {
+        override fun run() {
+            val p = poll ?: return
+            pollHead?.text = pollHeadText(p)
+            if (p.state == "ACTIVE" && p.secondsLeftNow() > 0) act.ui.postDelayed(this, 1000)
+        }
+    }
+
+    private fun pollHeadText(p: com.diriktv.sidekick.data.ChatPoll): String {
+        val left = p.secondsLeftNow()
+        val prediction = p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION
+        return when {
+            prediction && p.state == "RESOLVED" -> "PREDICTION • DECIDED"
+            prediction && p.state == "CANCELLED" -> "PREDICTION • CANCELLED"
+            prediction && (p.state == "LOCKED" || (p.state == "ACTIVE" && left == 0)) -> "PREDICTION • LOCKED"
+            prediction -> "PREDICTION"
+            p.state == "ENDED" || left == 0 && p.secondsLeft > 0 -> "POLL • RESULTS"
+            else -> "POLL"
+        } + if (left > 0) "  •  ${left / 60}:${"%02d".format(left % 60)} left" else ""
+    }
+
+    /**
+     * The poll or prediction card: its question, then each answer with a bar of its share. An
+     * update to the same poll moves the bars to their new shares instead of redrawing the card.
+     */
     private fun showPoll() {
         val p = poll
         val show = p != null && prefs.chatPolls && act.mode != PlayerActivity.Mode.VOD && p.options.isNotEmpty()
         pollView.setVisible(show)
-        if (!show || p == null) return
-        pollView.removeAllViews()
-        val head = when {
-            p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION && p.state == "RESOLVED" -> "PREDICTION • DECIDED"
-            p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION && p.state == "LOCKED" -> "PREDICTION • LOCKED"
-            p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION -> "PREDICTION"
-            p.state == "ENDED" -> "POLL • RESULTS"
-            else -> "POLL"
-        } + if (p.secondsLeft > 0) "  •  ${p.secondsLeft / 60}:${"%02d".format(p.secondsLeft % 60)} left" else ""
-        pollView.addView(android.widget.TextView(act).apply {
-            text = head
-            textSize = 11f
-            letterSpacing = 0.08f
-            com.diriktv.sidekick.ui.AppFonts.get(act, com.diriktv.sidekick.ui.AppFonts.Weight.MEDIUM).let { typeface = it }
-            setTextColor(act.getColor(R.color.kick_green))
-        })
-        pollView.addView(android.widget.TextView(act).apply {
-            text = p.title
-            textSize = 14f
-            typeface = com.diriktv.sidekick.ui.AppFonts.get(act, com.diriktv.sidekick.ui.AppFonts.Weight.BOLD)
-            setTextColor(act.getColor(R.color.text_primary))
-            setPadding(0, act.dp(2), 0, act.dp(6))
-        })
+        act.ui.removeCallbacks(pollCountdown)
+        PhoneChat.poll = p.takeIf { show }
+        if (!show || p == null) {
+            pollShown = null
+            return
+        }
         val total = p.total.coerceAtLeast(1)
         val leader = p.options.maxOf { it.amount }
-        for (o in p.options.take(5)) {
-            val share = o.amount.toFloat() / total
-            pollView.addView(PollBar(act, o.label, share, highlight = o.won || (o.amount == leader && o.amount > 0)),
-                android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, act.dp(24)).apply {
-                    topMargin = act.dp(4)
-                })
+        val options = p.options.take(5)
+        val identity = p.kind + "|" + p.title + "|" + options.joinToString("|") { it.label }
+        if (identity == pollShown) {
+            pollHead?.text = pollHeadText(p)
+            options.forEachIndexed { i, o ->
+                (pollView.getChildAt(i + 2) as? PollBar)?.update(o.amount.toFloat() / total, o.won || (o.amount == leader && o.amount > 0))
+            }
+        } else {
+            pollShown = identity
+            pollView.removeAllViews()
+            pollHead = android.widget.TextView(act).apply {
+                text = pollHeadText(p)
+                textSize = 11f
+                letterSpacing = 0.08f
+                com.diriktv.sidekick.ui.AppFonts.get(act, com.diriktv.sidekick.ui.AppFonts.Weight.MEDIUM).let { typeface = it }
+                setTextColor(act.getColor(R.color.kick_green))
+            }
+            pollView.addView(pollHead)
+            pollView.addView(android.widget.TextView(act).apply {
+                text = p.title
+                textSize = 14f
+                typeface = com.diriktv.sidekick.ui.AppFonts.get(act, com.diriktv.sidekick.ui.AppFonts.Weight.BOLD)
+                setTextColor(act.getColor(R.color.text_primary))
+                setPadding(0, act.dp(2), 0, act.dp(6))
+            })
+            for (o in options) {
+                pollView.addView(PollBar(act, o.label, o.amount.toFloat() / total, highlight = o.won || (o.amount == leader && o.amount > 0)),
+                    android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, act.dp(24)).apply {
+                        topMargin = act.dp(4)
+                    })
+            }
+            if (canVote(p)) pollView.addView(android.widget.TextView(act).apply {
+                text = "☰  to vote"
+                textSize = 11f
+                setTextColor(act.getColor(R.color.text_secondary))
+                setPadding(0, act.dp(6), 0, 0)
+            })
         }
+        if (p.state == "ACTIVE" && p.secondsLeftNow() > 0) act.ui.postDelayed(pollCountdown, 1000)
+    }
+
+    /** Signed in, and the poll or prediction still takes votes. */
+    fun canVote(p: com.diriktv.sidekick.data.ChatPoll? = poll) =
+        p != null && com.diriktv.sidekick.data.Follows.signedIn && p.state == "ACTIVE" &&
+            (p.secondsLeft == 0 || p.secondsLeftNow() > 0)
+
+    /** The poll or prediction on screen, if there's one to vote in. */
+    val votable get() = poll?.takeIf { canVote(it) && act.mode != PlayerActivity.Mode.VOD }
+
+    /** A vote went in (from the TV): look again soon so the card shows it. */
+    fun voted() {
+        act.ui.removeCallbacks(predictionCheck)
+        act.ui.postDelayed(predictionCheck, 1_500)
     }
 
     fun setTimestamps(on: Boolean) {
@@ -413,6 +481,7 @@ internal class ChatController(private val act: PlayerActivity) {
 
     /** Drops the connection and messages (switching to another channel). */
     fun reset() {
+        stopScrollBack()
         generation++
         close()
         client = null
@@ -424,6 +493,8 @@ internal class ChatController(private val act: PlayerActivity) {
         liveChannel = null
         pinned = null
         poll = null
+        pollShown = null
+        act.ui.removeCallbacks(pollCountdown)
         modes = com.diriktv.sidekick.data.ChatModes()
         showModes()
         showPinned()
@@ -472,6 +543,78 @@ internal class ChatController(private val act: PlayerActivity) {
         act.ui.postDelayed(drainNext, CALM_INTERVAL_MS)
     }
 
+    // region scroll back
+
+    /** Chat is paused to read back through it: new messages wait below, and the list doesn't jump. */
+    var paused = false
+        private set
+    private var newWhilePaused = 0
+    private val pill: android.widget.TextView by lazy {
+        android.widget.TextView(act).apply {
+            textSize = 13f
+            com.diriktv.sidekick.ui.AppFonts.get(act, com.diriktv.sidekick.ui.AppFonts.Weight.BOLD).let { typeface = it }
+            setTextColor(0xFF000000.toInt())
+            gravity = android.view.Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(act.getColor(R.color.kick_green)); cornerRadius = act.dp(16).toFloat()
+            }
+            setPadding(act.dp(14), act.dp(7), act.dp(14), act.dp(7))
+            visibility = View.GONE
+            (panel as android.view.ViewGroup).addView(this, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                setMargins(0, act.dp(6), 0, act.dp(10))
+            })
+        }
+    }
+    private val pausedOutline by lazy {
+        android.graphics.drawable.GradientDrawable().apply { setStroke(act.dp(2), act.getColor(R.color.kick_green)) }
+    }
+
+    /** ▲▼ move through earlier messages; OK, Back or ◀▶ go back to the newest. */
+    fun startScrollBack(): Boolean {
+        if (!shown || adapter.itemCount == 0) return false
+        paused = true
+        newWhilePaused = 0
+        adapter.maxMessages = ChatAdapter.MAX_PAUSED
+        act.controls.hide()
+        panel.setVisible(true)
+        panel.foreground = pausedOutline
+        updatePill()
+        pill.setVisible(true)
+        list.smoothScrollBy(0, -list.height / 3)
+        return true
+    }
+
+    fun stopScrollBack() {
+        if (!paused) return
+        paused = false
+        panel.foreground = null
+        pill.setVisible(false)
+        adapter.maxMessages = ChatAdapter.MAX_MESSAGES
+        list.scrollToPosition((adapter.itemCount - 1).coerceAtLeast(0))
+        if (!layout.beside && act.controls.up) panel.setVisible(false)
+    }
+
+    private fun updatePill() {
+        pill.text = if (newWhilePaused > 0) "↓  Back to newest  •  $newWhilePaused new" else "↓  Back to newest"
+    }
+
+    /** Keys while chat is paused. */
+    fun onScrollKey(event: android.view.KeyEvent): Boolean {
+        if (event.action != android.view.KeyEvent.ACTION_DOWN) return true
+        val step = list.height / 3
+        when (event.keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> list.smoothScrollBy(0, -step)
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN ->
+                if (list.canScrollVertically(1)) list.smoothScrollBy(0, step) else stopScrollBack()
+            else -> stopScrollBack()
+        }
+        return true
+    }
+
+    // endregion
+
     /**
      * Queues [m] for chat. Busy chat would otherwise insert and scroll once per message; instead
      * whatever arrives within [FLUSH_MS] goes in together, with one scroll.
@@ -496,9 +639,15 @@ internal class ChatController(private val act: PlayerActivity) {
         lastAddAt = now
         val wantAnimator = if (busy) null else slideIn
         if (list.itemAnimator !== wantAnimator) list.itemAnimator = wantAnimator
+        if (paused) {
+            newWhilePaused += incoming.count { !it.isSystem }
+            updatePill()
+            // Keep what's being read in place: no slide-ins, no scrolling.
+            list.itemAnimator = null
+        }
         adapter.addAll(ArrayList(incoming))
         incoming.clear()
-        if (panel.visibility == View.VISIBLE) list.scrollToPosition(adapter.itemCount - 1)
+        if (panel.visibility == View.VISIBLE && !paused) list.scrollToPosition(adapter.itemCount - 1)
     }
 
     /** Where chat sits for this channel (its own saved layout, or the default). */
@@ -506,6 +655,7 @@ internal class ChatController(private val act: PlayerActivity) {
 
     /** With overlay chat, the panel steps aside while the controls are up. */
     fun onControlsShown() {
+        stopScrollBack()
         if (!layout.beside) panel.setVisible(false)
     }
 
@@ -597,8 +747,28 @@ internal class ChatController(private val act: PlayerActivity) {
 
 /** One answer of a poll: a bar filled to its share, with the answer and the percentage on top. */
 @android.annotation.SuppressLint("ViewConstructor") // only ever built in code, never from XML
-private class PollBar(context: android.content.Context, private val label: String, private val share: Float, private val highlight: Boolean) :
+private class PollBar(context: android.content.Context, private val label: String, private var share: Float, private var highlight: Boolean) :
     View(context) {
+    private var animator: android.animation.ValueAnimator? = null
+
+    /** New results: the bar slides to its new share. */
+    fun update(newShare: Float, newHighlight: Boolean) {
+        highlight = newHighlight
+        fill.color = if (highlight) context.getColor(R.color.kick_green) else 0x66FFFFFF
+        if (newShare == share) return invalidate()
+        animator?.cancel()
+        animator = android.animation.ValueAnimator.ofFloat(share, newShare).apply {
+            duration = 500
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener {
+                share = it.animatedValue as Float
+                pct = "${(share * 100).toInt()}%"
+                invalidate()
+            }
+            start()
+        }
+    }
+
     private val track = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
     private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         color = if (highlight) context.getColor(R.color.kick_green) else 0x66FFFFFF
@@ -608,7 +778,7 @@ private class PollBar(context: android.content.Context, private val label: Strin
         typeface = com.diriktv.sidekick.ui.AppFonts.get(context, com.diriktv.sidekick.ui.AppFonts.Weight.MEDIUM)
     }
     private val rect = android.graphics.RectF()
-    private val pct = "${(share * 100).toInt()}%"
+    private var pct = "${(share * 100).toInt()}%"
     private var shown: CharSequence = label
     private var shownFor = -1f
 

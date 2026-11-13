@@ -74,8 +74,17 @@ class GridAdapter(
 
     override fun getItemId(position: Int) = stableId(items[position].key)
 
+    private companion object {
+        /** How much bigger card text is with Larger text on. */
+        const val LARGER_TEXT = 1.25f
+    }
+
+    /** Read when the list is attached; changing it recreates the screen. */
+    private var largerText = false
+
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         recycler = recyclerView
+        largerText = com.diriktv.sidekick.data.Prefs(recyclerView.context).largerText
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
@@ -183,6 +192,10 @@ class GridAdapter(
         (v.findViewById<View?>(R.id.banner)?.parent as? View)?.clipToOutline = true
         v.findViewById<AspectImageView?>(R.id.avatar)?.ratio = 1f
         val holder = VH(v)
+        // Settings → Appearance → Larger text.
+        if (largerText && viewType != 0) listOf(holder.title, holder.channel, holder.category, holder.name, holder.followers).forEach { t ->
+            t?.let { it.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, it.textSize * LARGER_TEXT) }
+        }
         if (viewType != 0 && viewType != 4) v.focusZoom(if (viewType == 2) 1.08f else 1.05f) { has ->
             // Live cards carry their channel in the tag (set when bound) for the focus preview.
             (v.getTag(R.id.thumbFrame) as? String)?.let { FocusPreview.onFocus(v, it, has) }
@@ -229,7 +242,7 @@ class GridAdapter(
                 val s = item.stream
                 holder.thumb?.loadThumb(Img.thumb(s.thumbnail), live = true)
                 holder.avatar?.apply { setVisible(true); loadAvatar(s.avatar, s.username) }
-                holder.title?.text = s.title
+                holder.title?.text = Fmt.cleanTitle(s.title).ifEmpty { s.title }
                 holder.channel?.text = s.username
                 holder.category?.apply { text = s.category.orEmpty(); setVisible(s.category != null) }
                 holder.viewers?.apply { text = Fmt.viewers(s.viewers); setVisible(true) }

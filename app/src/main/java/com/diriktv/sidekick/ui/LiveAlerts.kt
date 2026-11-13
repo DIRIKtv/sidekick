@@ -28,7 +28,8 @@ import java.util.WeakHashMap
 
 /**
  * Go-live alerts. While the app is open it rechecks followed channels every few minutes and
- * shows a banner when one goes live: ▶❚❚ opens it, and in the player it's at the top of ☰.
+ * shows a banner when one goes live: ▶❚❚ opens it (OK in the player, while nothing else is on
+ * screen), and in the player it's also at the top of ☰. Alerts can be muted per channel.
  */
 object LiveAlerts : Application.ActivityLifecycleCallbacks {
     private const val INTERVAL_MS = 3 * 60_000L
@@ -92,7 +93,8 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
                 // A changed follow list resets the baseline (no alert for someone you just followed).
                 if (before != null && knownVersion == Follows.version) {
                     val watching = PlayerActivity.currentSlug
-                    val fresh = live.filter { it.slug.lowercase() !in before && !it.slug.equals(watching, true) }
+                    val muted = Prefs(app).mutedAlerts
+                    val fresh = live.filter { it.slug.lowercase() !in before && !it.slug.equals(watching, true) && it.slug.lowercase() !in muted }
                     if (fresh.isNotEmpty()) announce(fresh)
                 }
                 known = slugs
@@ -115,7 +117,6 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
 
     private fun showBanner(act: Activity, s: LiveStream, others: Int) {
         dismissBanner(animate = false)
-        val inPlayer = act is PlayerActivity || act is MultiViewActivity
         val v = LinearLayout(act).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -150,7 +151,7 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
             font(AppFonts.Weight.MEDIUM)
         })
         texts.addView(TextView(act).apply {
-            text = listOfNotNull(s.category, s.title.takeIf { it.isNotBlank() }).joinToString(" • ")
+            text = listOfNotNull(s.category, Fmt.cleanTitle(s.title).takeIf { it.isNotBlank() }).joinToString(" • ")
             setTextColor(act.getColor(R.color.text_secondary))
             textSize = 13f
             maxLines = 1
@@ -158,13 +159,20 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
             maxWidth = act.dp(300)
             font(AppFonts.Weight.REGULAR)
         })
+        // What to press, drawn as a button.
         texts.addView(TextView(act).apply {
-            text = if (inPlayer) "☰  Settings to switch" else "▶❚❚  Play to watch"
-            setTextColor(act.getColor(R.color.text_primary))
+            text = when (act) {
+                is PlayerActivity -> "OK  Watch now"
+                else -> "▶❚❚  Watch now"
+            }
+            setTextColor(0xFF000000.toInt())
             textSize = 12f
-            font(AppFonts.Weight.REGULAR)
-            setPadding(0, act.dp(6), 0, 0)
-        })
+            font(AppFonts.Weight.BOLD)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(act.getColor(R.color.kick_green)); cornerRadius = act.dp(12).toFloat()
+            }
+            setPadding(act.dp(10), act.dp(4), act.dp(10), act.dp(4))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(8) })
         v.addView(texts)
 
         val decor = act.window.decorView as? FrameLayout ?: return
@@ -195,10 +203,17 @@ object LiveAlerts : Application.ActivityLifecycleCallbacks {
         }
     }
 
-    /** ▶❚❚ opens the announced stream while its banner is up (outside the player, which uses the key itself). */
+    /**
+     * The banner's button: ▶❚❚ opens the announced stream while it's up. In the player, where ▶❚❚
+     * pauses, it's OK instead, but only while nothing else is on screen (OK would otherwise
+     * bring up the controls).
+     */
     private fun handleKey(act: Activity, event: KeyEvent): Boolean {
-        if (banner?.get() == null || bannerOn?.get() !== act || act is PlayerActivity || act is MultiViewActivity) return false
-        if (event.keyCode != KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && event.keyCode != KeyEvent.KEYCODE_MEDIA_PLAY) return false
+        if (banner?.get() == null || bannerOn?.get() !== act) return false
+        val ok = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
+        val play = event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+        val wanted = if (act is PlayerActivity) ok && act.quietForAlert else play
+        if (!wanted) return false
         if (event.action == KeyEvent.ACTION_UP) {
             val s = recent ?: return true
             dismissBanner(animate = false)

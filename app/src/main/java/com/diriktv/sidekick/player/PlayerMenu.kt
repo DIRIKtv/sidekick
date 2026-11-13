@@ -11,6 +11,8 @@ import com.diriktv.sidekick.ui.LiveAlerts
 import com.diriktv.sidekick.ui.Nav
 import com.diriktv.sidekick.ui.OptionSheet
 import com.diriktv.sidekick.ui.setVisible
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 /** The player's settings sheet (☰) and the track choices behind it. */
@@ -92,6 +94,12 @@ internal class PlayerMenu(private val act: PlayerActivity) {
                     Nav.watchLive(act, s.slug)
                 })
             }
+            act.chat.votable?.let { p ->
+                val prediction = p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION
+                add(OptionSheet.Item(if (prediction) "Predict" else "Vote", sub = p.title.take(70), icon = R.drawable.ic_poll, submenu = true) {
+                    it.push(votePage(p))
+                })
+            }
             add(OptionSheet.Item("Quality", value = currentQualityLabel(), icon = R.drawable.ic_hd, submenu = true) { it.push(qualityPage()) })
             if (act.mode != PlayerActivity.Mode.LIVE) {
                 add(OptionSheet.Item("Playback speed", value = speedLabel(act.speed), icon = R.drawable.ic_speed, submenu = true) { it.push(speedPage()) })
@@ -128,11 +136,56 @@ internal class PlayerMenu(private val act: PlayerActivity) {
                 act.stats.setVisible(act.stats.visibility != View.VISIBLE)
                 it.refresh()
             })
+            if (prefs.liveAlerts && com.diriktv.sidekick.data.Follows.isFollowing(act, act.slug)) {
+                val key = act.slug.lowercase()
+                add(OptionSheet.Item("Go-live alerts", sub = "A notice when ${act.channel?.username ?: "this channel"} goes live",
+                    value = if (key in prefs.mutedAlerts) "Off" else "On", icon = R.drawable.ic_broadcast) {
+                    prefs.mutedAlerts = if (key in prefs.mutedAlerts) prefs.mutedAlerts - key else prefs.mutedAlerts + key
+                    it.refresh()
+                })
+            }
             add(OptionSheet.Item("Go to channel", sub = "Past broadcasts, clips & info", icon = R.drawable.ic_person) {
                 it.dismiss()
                 Nav.channel(act, act.slug)
                 act.finish()
             })
+        }
+    }
+
+    /** The answers of the poll (or prediction) in chat; a prediction then asks how many points. */
+    private fun votePage(p: com.diriktv.sidekick.data.ChatPoll): OptionSheet.Page {
+        val prediction = p.kind == com.diriktv.sidekick.data.ChatPoll.PREDICTION
+        return OptionSheet.Page(p.title, eyebrow = if (prediction) "Prediction" else "Poll") {
+            p.options.mapIndexed { i, o ->
+                OptionSheet.Item(o.label, value = if (p.total > 0) "${o.amount * 100 / p.total}%" else null) { sheet ->
+                    if (prediction) sheet.push(amountPage(p, o)) else {
+                        sheet.dismiss()
+                        submitVote { com.diriktv.sidekick.data.KickApi.votePoll(act.slug, i) }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun amountPage(p: com.diriktv.sidekick.data.ChatPoll, o: com.diriktv.sidekick.data.ChatPoll.Option) =
+        OptionSheet.Page("How many points?", eyebrow = o.label) {
+            listOf(100L, 500L, 1_000L, 5_000L, 10_000L).map { n ->
+                OptionSheet.Item("${com.diriktv.sidekick.ui.Fmt.count(n.toInt())} points") { sheet ->
+                    sheet.dismiss()
+                    submitVote { com.diriktv.sidekick.data.KickApi.votePrediction(act.slug, p.id, o.id, n) }
+                }
+            }
+        }
+
+    private fun submitVote(send: suspend () -> String?) {
+        act.lifecycleScope.launch {
+            val error = send()
+            if (error == null) {
+                act.controls.flashOsd("Vote sent", R.drawable.ic_poll)
+                act.chat.voted()
+            } else {
+                act.controls.flashOsd(error, R.drawable.ic_info, 4000)
+            }
         }
     }
 
@@ -251,6 +304,10 @@ internal class PlayerMenu(private val act: PlayerActivity) {
                 value = layoutLabel(), icon = R.drawable.ic_layout) {
                 it.dismiss()
                 act.layoutEditor.show()
+            },
+            OptionSheet.Item("Scroll back", sub = "Pause chat to read earlier messages (▲▼, OK to return)", icon = R.drawable.ic_history) {
+                it.dismiss()
+                if (!act.chat.startScrollBack()) act.controls.flashOsd("Show chat first", R.drawable.ic_chat)
             },
             OptionSheet.Item("Filters", value = filterSummary(), submenu = true) { it.push(filtersPage()) },
             OptionSheet.Item("Text size", value = "${act.chat.layout.textSize.takeIf { it > 0 } ?: prefs.chatTextSize}sp", submenu = true) { sheet ->

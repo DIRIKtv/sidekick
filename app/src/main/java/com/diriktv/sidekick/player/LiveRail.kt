@@ -42,7 +42,8 @@ internal class LiveRail(private val act: PlayerActivity, private val stage: Fram
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.BOTTOM
         setBackgroundResource(R.drawable.bg_live_rail)
-        setPadding(act.dp(42), act.dp(28), act.dp(42), act.dp(20))
+        setPadding(act.dp(36), act.dp(18), act.dp(36), act.dp(18))
+        elevation = act.dp(12).toFloat()
         visibility = View.GONE
         // Focus stays inside the rail while it's up.
         descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
@@ -79,7 +80,9 @@ internal class LiveRail(private val act: PlayerActivity, private val stage: Fram
         panel.addView(note)
         panel.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         list.adapter = adapter
-        stage.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+        stage.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+            setMargins(act.dp(24), 0, act.dp(24), 0)
+        })
         // A third of the picture: the cards are sized for it, the rest is the fade above them.
         stage.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
             if (bottom - top != oldBottom - oldTop) panel.minimumHeight = (bottom - top) / 3
@@ -89,6 +92,8 @@ internal class LiveRail(private val act: PlayerActivity, private val stage: Fram
     fun show() {
         if (showing || act.inPip) return
         act.controls.hide()
+        // Chat steps aside (beside the video, the picture takes its room) while the rail is up.
+        act.chat.covered = true
         heading.text = "Live now from Following"
         if (adapter.streams.isEmpty()) {
             note.text = "Finding live channels…"
@@ -112,6 +117,7 @@ internal class LiveRail(private val act: PlayerActivity, private val stage: Fram
         panel.animate().alpha(0f).translationY(act.dp(40).toFloat()).setDuration(180).withEndAction {
             panel.visibility = View.GONE
         }.start()
+        act.chat.covered = false
         act.captions.lift(false, 0f)
     }
 

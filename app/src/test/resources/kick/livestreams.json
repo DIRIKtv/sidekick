@@ -1,0 +1,106 @@
+{
+ "data": {
+  "livestreams": [
+   {
+    "id": "01a1d1db-0be0-7258-802b-9e9f503aabf4",
+    "title": "N3on x Neveah",
+    "viewer_count": 36221,
+    "show_view_count": true,
+    "thumbnail": {
+     "src": "https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/720.webp",
+     "srcset": "https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/1080.webp 1920w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/720.webp 1280w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/480.webp 640w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/360.webp 480w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/160.webp 284w"
+    },
+    "start_time": "2026-11-12T22:22:36Z",
+    "channel": {
+     "id": 1227772,
+     "slug": "n3on",
+     "profile_pic": "https://files.kick.com/images/user/1269875/profile_image/conversion/146ebe46-9895-49d9-8083-d416ea340146-medium.webp",
+     "username": "n3on"
+    },
+    "category": {
+     "id": 8549,
+     "name": "IRL",
+     "slug": "irl"
+    },
+    "language": "en",
+    "caption_language_codes": [
+     "en",
+     "pt",
+     "es",
+     "fr",
+     "de"
+    ],
+    "is_mature": false,
+    "tags": []
+   },
+   {
+    "id": "01a1d1cd-6f80-7cdb-8bc0-db4d32873c6d",
+    "title": "Need a $100M day",
+    "viewer_count": 36064,
+    "show_view_count": true,
+    "thumbnail": {
+     "src": "https://images.kick.com/video_thumbnails/p0mBRipm9p81/OAmFxD5Ijbur/720.webp",
+     "srcset": "https://images.kick.com/video_thumbnails/p0mBRipm9p81/OAmFxD5Ijbur/1080.webp 1920w, https://images.kick.com/video_thumbnails/p0mBRipm9p81/OAmFxD5Ijbur/720.webp 1280w, https://images.kick.com/video_thumbnails/p0mBRipm9p81/OAmFxD5Ijbur/480.webp 640w, https://images.kick.com/video_thumbnails/p0mBRipm9p81/OAmFxD5Ijbur/360.webp 480w, https://images.kick.com/video_thumbnails/p0mBRipm9p81/OAmFxD5Ijbur/160.webp 284w"
+    },
+    "start_time": "2026-11-12T22:07:44Z",
+    "channel": {
+     "id": 715,
+     "slug": "trainwreckstv",
+     "profile_pic": "https://files.kick.com/images/user/723/profile_image/conversion/87a305ea-3bc8-4e65-8772-9a453e8b9f37-medium.webp",
+     "username": "Trainwreckstv"
+    },
+    "category": {
+     "id": 28,
+     "name": "Slots & Casino",
+     "slug": "slots"
+    },
+    "language": "en",
+    "caption_language_codes": [
+     "en",
+     "pt",
+     "es",
+     "fr",
+     "de"
+    ],
+    "is_mature": true,
+    "tags": []
+   },
+   {
+    "id": "01a1d1eb-6378-71f6-b18f-91af8791e241",
+    "title": "MOVED TO A NEW HOUSE IN MIAMI 🌴",
+    "viewer_count": 15832,
+    "show_view_count": true,
+    "thumbnail": {
+     "src": "https://images.kick.com/video_thumbnails/nnDwHw8EOliy/ODBHDrZwxRIs/720.webp",
+     "srcset": "https://images.kick.com/video_thumbnails/nnDwHw8EOliy/ODBHDrZwxRIs/1080.webp 1920w, https://images.kick.com/video_thumbnails/nnDwHw8EOliy/ODBHDrZwxRIs/720.webp 1280w, https://images.kick.com/video_thumbnails/nnDwHw8EOliy/ODBHDrZwxRIs/480.webp 640w, https://images.kick.com/video_thumbnails/nnDwHw8EOliy/ODBHDrZwxRIs/360.webp 480w, https://images.kick.com/video_thumbnails/nnDwHw8EOliy/ODBHDrZwxRIs/160.webp 284w"
+    },
+    "start_time": "2026-11-12T22:40:27Z",
+    "channel": {
+     "id": 5417122,
+     "slug": "deenthegreat",
+     "profile_pic": "https://files.kick.com/images/user/5508767/profile_image/conversion/573bc8be-7580-426c-b741-a65dca3ab089-medium.webp",
+     "username": "DeenTheGreat"
+    },
+    "category": {
+     "id": 8549,
+     "name": "IRL",
+     "slug": "irl"
+    },
+    "language": "en",
+    "caption_language_codes": [
+     "en",
+     "pt",
+     "es",
+     "fr",
+     "de"
+    ],
+    "is_mature": false,
+    "tags": []
+   }
+  ],
+  "pagination": {
+   "next_cursor": "eyJvIjozfQ"
+  }
+ },
+ "message": "Success"
+}

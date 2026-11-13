@@ -1,0 +1,122 @@
+{
+ "clips": [
+  {
+   "id": "clip_01H811MXG4FBR62FXPE1AXABDH",
+   "livestream_id": "12271000",
+   "category_id": "15",
+   "channel_id": 668,
+   "user_id": 7418785,
+   "title": "soda",
+   "clip_url": "https://clips.kick.com/clips/dh/clip_01H811MXG4FBR62FXPE1AXABDH/playlist.m3u8",
+   "thumbnail_url": "https://clips.kick.com/clips/dh/clip_01H811MXG4FBR62FXPE1AXABDH/thumbnail.png",
+   "privacy": "public",
+   "likes": 0,
+   "liked": false,
+   "views": 337544,
+   "duration": 30,
+   "started_at": "0001-01-01T00:00:00Z",
+   "created_at": "2023-08-17T06:07:19.490719Z",
+   "vod_starts_at": 0,
+   "is_mature": false,
+   "video_url": "https://clips.kick.com/clips/dh/clip_01H811MXG4FBR62FXPE1AXABDH/playlist.m3u8",
+   "view_count": 337544,
+   "likes_count": 0,
+   "category": {
+    "id": 15,
+    "name": "Just Chatting",
+    "slug": "just-chatting",
+    "parent_category": "irl"
+   },
+   "creator": {
+    "id": 7418785,
+    "username": "Wasab7i",
+    "slug": "wasab7i"
+   },
+   "channel": {
+    "id": 668,
+    "username": "xQc",
+    "slug": "xqc",
+    "profile_picture": "https://files.kick.com/images/user/676/profile_image/conversion/151f289a-5bff-4f31-b125-0c54c542519e-thumb.webp"
+   }
+  },
+  {
+   "id": "clip_01H6QY1H0QCE582N739JNZTD3Q",
+   "livestream_id": "10535712",
+   "category_id": "6",
+   "channel_id": 668,
+   "user_id": 16670427,
+   "title": "BRUHHHHH",
+   "clip_url": "https://clips.kick.com/clips/3q/clip_01H6QY1H0QCE582N739JNZTD3Q/playlist.m3u8",
+   "thumbnail_url": "https://clips.kick.com/clips/3q/clip_01H6QY1H0QCE582N739JNZTD3Q/thumbnail.png",
+   "privacy": "public",
+   "likes": 0,
+   "liked": false,
+   "views": 291316,
+   "duration": 30,
+   "started_at": "0001-01-01T00:00:00Z",
+   "created_at": "2023-08-01T06:55:18.769488Z",
+   "vod_starts_at": 0,
+   "is_mature": false,
+   "video_url": "https://clips.kick.com/clips/3q/clip_01H6QY1H0QCE582N739JNZTD3Q/playlist.m3u8",
+   "view_count": 291316,
+   "likes_count": 0,
+   "category": {
+    "id": 6,
+    "name": "Overwatch",
+    "slug": "overwatch",
+    "parent_category": "games"
+   },
+   "creator": {
+    "id": 16670427,
+    "username": "aintnoway_1",
+    "slug": "aintnoway-1"
+   },
+   "channel": {
+    "id": 668,
+    "username": "xQc",
+    "slug": "xqc",
+    "profile_picture": "https://files.kick.com/images/user/676/profile_image/conversion/151f289a-5bff-4f31-b125-0c54c542519e-thumb.webp"
+   }
+  },
+  {
+   "id": "clip_01HENP2EGF195T4FFNH472YEEK",
+   "livestream_id": "18171890",
+   "category_id": "15",
+   "channel_id": 668,
+   "user_id": 8322367,
+   "title": "Documentary Guy",
+   "clip_url": "https://clips.kick.com/clips/ek/clip_01HENP2EGF195T4FFNH472YEEK/playlist.m3u8",
+   "thumbnail_url": "https://clips.kick.com/clips/ek/clip_01HENP2EGF195T4FFNH472YEEK/thumbnail.png",
+   "privacy": "public",
+   "likes": 0,
+   "liked": false,
+   "views": 245271,
+   "duration": 46,
+   "started_at": "0001-01-01T00:00:00Z",
+   "created_at": "2023-11-07T20:02:55.487558Z",
+   "vod_starts_at": 0,
+   "is_mature": false,
+   "video_url": "https://clips.kick.com/clips/ek/clip_01HENP2EGF195T4FFNH472YEEK/playlist.m3u8",
+   "view_count": 245271,
+   "likes_count": 0,
+   "category": {
+    "id": 6853,
+    "name": "Lethal Company",
+    "slug": "lethal-company",
+    "parent_category": "games"
+   },
+   "creator": {
+    "id": 8322367,
+    "username": "Yetiking3",
+    "slug": "yetiking3"
+   },
+   "channel": {
+    "id": 668,
+    "username": "xQc",
+    "slug": "xqc",
+    "profile_picture": "https://files.kick.com/images/user/676/profile_image/conversion/151f289a-5bff-4f31-b125-0c54c542519e-thumb.webp"
+   }
+  }
+ ],
+ "nextCursor": "{\"view\":68651,\"id\":\"clip_01J69JT6PKEGKPPB0DBXVE9NNP\"}"
+}

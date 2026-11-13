@@ -39,6 +39,7 @@ class SidekickApp : Application(), SingletonImageLoader.Factory, android.content
     override fun onCreate() {
         super.onCreate()
         com.diriktv.sidekick.data.CrashReports.install(this)
+        com.diriktv.sidekick.ui.Motion.reduced = com.diriktv.sidekick.data.Prefs(this).reduceMotion
         val am = getSystemService(android.app.ActivityManager::class.java)
         com.diriktv.sidekick.ui.Img.lowMemory = am.isLowRamDevice || am.memoryClass < 192
         // Claim the same Chrome version as the TV's WebView (reading the package doesn't start it).

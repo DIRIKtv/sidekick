@@ -36,7 +36,7 @@ abstract class GridPage(
     protected val status: TextView = view.findViewById(R.id.status)
     protected val progress: View = view.findViewById<View>(R.id.progress).replaceWithSkeleton(spanCount, cardRatio, captions)
     protected val adapter = GridAdapter(
-        onClick = { Nav.onCardClick(act, it) },
+        onClick = { onItemClick(it) },
         onLongClick = { Nav.onCardLongClick(act, it) },
         onNearEnd = { onNearEnd() },
     )
@@ -50,6 +50,8 @@ abstract class GridPage(
     protected val errorRetry = ErrorRetry(status)
 
     open fun onNearEnd() {}
+
+    open fun onItemClick(item: GridItem) = Nav.onCardClick(act, item)
 
     override fun focusContent(): Boolean {
         if (errorRetry.focusable?.requestFocus() == true) return true
@@ -65,36 +67,44 @@ abstract class GridPage(
 
 class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4) {
     private var job: Job? = null
+    private val prefs = Prefs(act)
 
-    /** Follower counts for offline channels, by lowercase slug; looked up as their cards come into view. */
-    private val counts = HashMap<String, com.diriktv.sidekick.data.ChannelInfo>()
+    /** When each offline channel was last live (UTC ms; null = never), by lowercase slug; looked up as needed. */
+    private val lastLive = HashMap<String, Long?>()
     private val asked = HashSet<String>()
     private var live: List<com.diriktv.sidekick.data.LiveStream> = emptyList()
     private var offline: List<com.diriktv.sidekick.data.Favorite> = emptyList()
-    private val applyCounts = Runnable { adapter.refreshItems(build()) }
+    private val applyLastLive = Runnable {
+        // Sorting by "recently live" waits until every offline channel's time is in, then sorts once.
+        if (prefs.followingSort == "recent" && offline.all { it.slug.lowercase() in lastLive }) adapter.update(build())
+        else adapter.refreshItems(build())
+    }
+
+    private companion object {
+        val SORTS = listOf("viewers" to "Most viewers", "recent" to "Recently live", "name" to "A–Z")
+    }
 
     init {
-        // Counts are a nicety: only for cards on screen, one or two at a time behind everything
-        // else (so opening a stream never waits on them), and kept a good while.
+        // "Last live" for cards on screen (or for everyone, when sorting by it): one or two at a
+        // time behind everything else, so opening a stream never waits on them.
         list.addOnChildAttachStateChangeListener(object : RecyclerView.OnChildAttachStateChangeListener {
             override fun onChildViewAttachedToWindow(view: View) {
                 val item = adapter.items.getOrNull(list.getChildAdapterPosition(view)) as? GridItem.Channel ?: return
-                if (!item.isLive) fetchCount(item.slug)
+                if (!item.isLive) fetchLastLive(item.slug)
             }
             override fun onChildViewDetachedFromWindow(view: View) {}
         })
     }
 
-    private fun fetchCount(slug: String) {
+    private fun fetchLastLive(slug: String) {
         val key = slug.lowercase()
-        if (key in counts || !asked.add(key)) return
+        if (key in lastLive || !asked.add(key)) return
         act.lifecycleScope.launch {
-            val c = runCatching { KickApi.channelInBackground(slug, maxAgeMs = 30 * 60_000) }.getOrNull()
-            if (c == null) { asked.remove(key); return@launch }
-            counts[key] = c
-            // Several arrive close together: redraw once.
-            list.removeCallbacks(applyCounts)
-            list.postDelayed(applyCounts, 250)
+            val r = runCatching { KickApi.lastLive(slug) }
+            if (r.isFailure) { asked.remove(key); return@launch }
+            lastLive[key] = r.getOrNull()
+            list.removeCallbacks(applyLastLive)
+            list.postDelayed(applyLastLive, 300)
         }
     }
 
@@ -102,19 +112,46 @@ class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4
         val items = mutableListOf<GridItem>()
         // Only this TV's favorites are showing: say why the account's are missing.
         if (Follows.sessionExpired) items += GridItem.Header("Kick sign-in expired • sign in again under Settings → Account to see all your follows")
+        val sort = prefs.followingSort
+        items += GridItem.Query("Sort: ${SORTS.firstOrNull { it.first == sort }?.second ?: "Most viewers"}")
         if (live.isNotEmpty()) {
             items += GridItem.Header("Live now")
-            items += live.map { GridItem.Stream(it) }
+            items += when (sort) {
+                "name" -> live.sortedBy { it.username.lowercase() }
+                "recent" -> live.sortedByDescending { Fmt.parseUtc(it.startTime) ?: 0L }
+                else -> live
+            }.map { GridItem.Stream(it) }
         }
         if (offline.isNotEmpty()) {
             items += GridItem.Header("Offline")
-            items += offline.map { fav ->
-                val c = counts[fav.slug.lowercase()]
-                GridItem.Channel(fav.slug, c?.username ?: fav.username, c?.avatar ?: fav.avatar, false,
-                    c?.let { "${Fmt.count(it.followers)} followers" } ?: "Offline")
+            items += when (sort) {
+                "recent" -> offline.sortedByDescending { lastLive[it.slug.lowercase()] ?: 0L }
+                else -> offline.sortedBy { it.username.lowercase() }
+            }.map { fav ->
+                val key = fav.slug.lowercase()
+                val subtitle = when {
+                    key !in lastLive -> "Offline"
+                    lastLive[key] == null -> "No past broadcasts"
+                    else -> "Live ${Fmt.ago(lastLive[key]!!)}"
+                }
+                GridItem.Channel(fav.slug, fav.username, fav.avatar, false, subtitle)
             }
         }
         return items
+    }
+
+    override fun onItemClick(item: GridItem) {
+        if (item !is GridItem.Query) return super.onItemClick(item)
+        OptionSheet(act).show(OptionSheet.Page("Sort Following") {
+            SORTS.map { (key, label) ->
+                OptionSheet.Item(label, checked = prefs.followingSort == key) { sheet ->
+                    sheet.dismiss()
+                    prefs.followingSort = key
+                    if (key == "recent") offline.forEach { fetchLastLive(it.slug) }
+                    adapter.update(build())
+                }
+            }
+        })
     }
 
     override fun onShown() = refresh()
@@ -136,6 +173,9 @@ class FollowingPage(act: FragmentActivity) : GridPage(act, R.layout.page_grid, 4
             live = Follows.liveNow(act)
             val liveSlugs = live.map { it.slug.lowercase() }.toSet()
             offline = favs.filter { it.slug.lowercase() !in liveSlugs }
+            // Went live since last time: its last-live time will be new when it ends.
+            liveSlugs.forEach { lastLive.remove(it); asked.remove(it) }
+            if (prefs.followingSort == "recent") offline.forEach { fetchLastLive(it.slug) }
             val hadFocus = list.hasFocus()
             adapter.submit(build())
             progress.setVisible(false)
@@ -304,6 +344,8 @@ class SearchPage(private val act: FragmentActivity) : MainPage {
         }
         val r = row()
         place(r, textKey("Space") { type(" ") }, 2f)
+        // Many Kick names have one; it's on no other key.
+        place(r, textKey("_") { type("_") })
         place(r, iconKey(R.drawable.ic_backspace, "Delete") { backspace() })
         place(r, iconKey(R.drawable.ic_close, "Clear") { setQuery("", 0) })
         if (voiceAvailable) place(r, iconKey(R.drawable.ic_mic, "Voice search") { runCatching { voice.launch(voiceIntent) } })
@@ -767,6 +809,16 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             listOf(
                 Setting("Font", { "The typeface used across the app" }, R.drawable.ic_font,
                     { AppFonts.current(act).label }) { fontMenu() },
+                Setting("Reduce motion", { "Turns off slides, drifting pictures, pulsing glows and the opening animation" }, R.drawable.ic_calm,
+                    { onOff(prefs.reduceMotion) }, toggle = { prefs.reduceMotion }) {
+                    prefs.reduceMotion = !prefs.reduceMotion
+                    Motion.reduced = prefs.reduceMotion
+                },
+                Setting("Larger text", { "Bigger titles and names on cards, easier to read from the sofa" }, R.drawable.ic_text,
+                    { onOff(prefs.largerText) }, toggle = { prefs.largerText }) {
+                    prefs.largerText = !prefs.largerText
+                    view.postDelayed({ act.recreate() }, 200)
+                },
                 Setting("Page transitions", { "Pages slide in from the direction you move in the side menu" }, R.drawable.ic_layout,
                     { onOff(prefs.pageTransitions) }, toggle = { prefs.pageTransitions }) {
                     prefs.pageTransitions = !prefs.pageTransitions
@@ -808,6 +860,8 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
                             " are filled in for you. Nothing is sent until you submit it.",
                         com.diriktv.sidekick.data.CrashReports.issueUrl(crash), "github.com/${com.diriktv.sidekick.data.Updater.REPO}/issues")
                 },
+                Setting("Back up & restore", { "Save your settings, favourites and history to your phone, or put them back on this TV" },
+                    R.drawable.ic_download, { null }) { backupDialog() },
                 Setting("Unpair phones", { "Phones that scanned the chat code can no longer read or send chat; the next scan gets a new code" },
                     R.drawable.ic_phone, { null }) {
                     OptionSheet.confirm(act, "Unpair phones?", "Every phone that scanned the chat code stops working until it scans the new one.",
@@ -819,6 +873,32 @@ class SettingsPage(private val act: FragmentActivity, private val onChanged: () 
             )
         },
     )
+
+    /**
+     * A QR code to a page on the home network for saving a backup to the phone, or sending one
+     * back. The page only works while the code is on screen; a restore is confirmed here first.
+     */
+    private fun backupDialog() {
+        val url = com.diriktv.sidekick.data.Backup.start(act)
+        if (url == null) {
+            android.widget.Toast.makeText(act, "Connect the TV to your home network first", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        var dialog: android.app.Dialog? = null
+        com.diriktv.sidekick.data.Backup.onRestoreOffered = { backup ->
+            dialog?.dismiss()
+            OptionSheet.confirm(act, "Restore this backup?",
+                "It has ${com.diriktv.sidekick.data.Backup.describe(backup)}. Your settings, favourites and history on this TV are replaced; your Kick sign-in stays.",
+                "Restore", R.drawable.ic_refresh) {
+                com.diriktv.sidekick.data.Backup.restore(act, backup)
+                android.widget.Toast.makeText(act, "Backup restored", android.widget.Toast.LENGTH_SHORT).show()
+                act.recreate()
+            }
+        }
+        dialog = QrDialog.show(act, "Back up & restore",
+            "Scan with your phone (on the same Wi-Fi) to save a backup there, or to restore one. Your Kick sign-in isn't included.",
+            url) { if (com.diriktv.sidekick.data.Backup.onRestoreOffered != null) com.diriktv.sidekick.data.Backup.stop() }
+    }
 
     /** How much the cache takes, measured off the main thread when Settings opens. */
     private var cacheSize: Long? = null

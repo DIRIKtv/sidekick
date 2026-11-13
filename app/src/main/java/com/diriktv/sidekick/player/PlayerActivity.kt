@@ -1268,6 +1268,10 @@ class PlayerActivity : FragmentActivity() {
 
     private var zapJob: Job? = null
 
+    /** Nothing but the picture on screen, so OK can belong to a go-live banner (see LiveAlerts). */
+    internal val quietForAlert get() = !controls.up && !menu.isShowing && errorView.visibility != View.VISIBLE &&
+        !endCard.showing && liveRail?.showing != true && upNext?.showing != true && !chat.paused && !layoutEditor.showing
+
     /**
      * CH+/CH− and next/previous: the next (or previous) live channel you follow, in the order
      * Following lists them; on a clip, the next clip from its row.
@@ -1305,6 +1309,15 @@ class PlayerActivity : FragmentActivity() {
         if (endCard.showing) {
             if (event.action == KeyEvent.ACTION_DOWN) endCard.onKey()
             return super.dispatchKeyEvent(event)
+        }
+        // Chat paused to read back: the arrows and OK belong to it.
+        if (chat.paused && (event.keyCode in railKeys || event.keyCode == KeyEvent.KEYCODE_BACK)) return chat.onScrollKey(event)
+        // ▶ off the last control, towards chat beside the video, goes into chat to read back.
+        if (event.action == KeyEvent.ACTION_DOWN && controls.up && chat.shown && chat.layout.beside) {
+            val towardChat = if (chat.layout.left) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
+            val focus = currentFocus
+            if (event.keyCode == towardChat && focus != null && focus !is android.widget.SeekBar &&
+                focus.focusSearch(if (chat.layout.left) View.FOCUS_LEFT else View.FOCUS_RIGHT) == null && chat.startScrollBack()) return true
         }
         liveRail?.takeIf { it.showing && event.keyCode in railKeys }?.let { rail ->
             if (rail.onKey(event)) return true
@@ -1401,6 +1414,7 @@ class PlayerActivity : FragmentActivity() {
             endCard.stay()
             return
         }
+        if (chat.paused) return chat.stopScrollBack()
         liveRail?.takeIf { it.showing }?.let { it.hide(); return }
         upNext?.takeIf { it.showing }?.let { it.hide(); controls.show(); return }
         when {

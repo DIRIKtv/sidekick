@@ -40,8 +40,16 @@ private val argb = ArgbEvaluator()
 private fun blend(a: Int, b: Int, t: Float) = argb.evaluate(t.coerceIn(0f, 1f), a, b) as Int
 private fun View.px(dp: Float) = dp * resources.displayMetrics.density
 
-/** True when the system's animator scale is off (the TV's "remove animations" setting). */
-internal fun Context.motionOff(): Boolean =
+/** Settings → Appearance → Reduce motion; set at start-up and when it's switched. */
+internal object Motion {
+    @Volatile var reduced = false
+}
+
+/**
+ * True when animations should stay still: Reduce motion is on in Sidekick, or the system's
+ * animator scale is off (the TV's "remove animations" setting, which most TVs don't offer).
+ */
+internal fun Context.motionOff(): Boolean = Motion.reduced ||
     Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
 /** Seconds since the previous frame; a long gap (the view was off screen) counts as one frame. */

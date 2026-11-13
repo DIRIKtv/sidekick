@@ -1,0 +1,133 @@
+{
+ "status": {
+  "error": false,
+  "code": 200,
+  "message": "SUCCESS"
+ },
+ "data": {
+  "messages": [
+   {
+    "id": "b585b7d1-f1ae-4cd1-bd78-74c6498b2693",
+    "chat_id": 668,
+    "user_id": 5505429,
+    "content": "no",
+    "type": "reply",
+    "metadata": "{\"original_message\":{\"id\":\"d34703fb-20b1-478e-a74e-b2b9acf3a528\",\"chatroom_id\":668,\"content\":\"stream today ?\",\"type\":\"message\",\"created_at\":\"2026-11-13T01:10:15+00:00\",\"sender\":{\"id\":8398694,\"username\":\"Juicer32\",\"slug\":\"juicer32\",\"identity\":{\"color\":\"#00CCB3\",\"badges\":[],\"badges_v2\":[{\"name\":\"level\",\"badge_type\":\"global\",\"image_url\":\"https:\\/\\/ext.cdn.kick.com\\/chat\\/badges\\/28_2a14f4f6-7793-431b-8ffc-79f045c425fc.png\",\"metadata\":{\"level\":28},\"selected\":false,\"sort_order\":1}]}},\"metadata\":{\"message_ref\":\"1794532214828\"},\"thread_parent_id\":\"\"},\"original_sender\":{\"id\":8398694,\"username\":\"Juicer32\",\"slug\":\"juicer32\",\"identity\":{\"color\":\"#00CCB3\",\"badges\":[],\"badges_v2\":[{\"name\":\"level\",\"badge_type\":\"global\",\"image_url\":\"https:\\/\\/ext.cdn.kick.com\\/chat\\/badges\\/28_2a14f4f6-7793-431b-8ffc-79f045c425fc.png\",\"metadata\":{\"level\":28},\"selected\":false,\"sort_order\":1}]}},\"message_ref\":\"1794532409804\"}",
+    "created_at": "2026-11-13T01:13:30Z",
+    "sender": {
+     "id": 5505429,
+     "slug": "blundr",
+     "username": "Blundr",
+     "identity": {
+      "color": "#FFD899",
+      "badges": [],
+      "badges_v2": [
+       {
+        "name": "level",
+        "badge_type": "global",
+        "image_url": "https://ext.cdn.kick.com/chat/badges/41_77a3469a-f50f-4fcc-9e6f-634c5b6d1854.png",
+        "metadata": {
+         "level": 41
+        },
+        "selected": true,
+        "sort_order": 1
+       }
+      ]
+     }
+    }
+   },
+   {
+    "id": "d34703fb-20b1-478e-a74e-b2b9acf3a528",
+    "chat_id": 668,
+    "user_id": 8398694,
+    "content": "stream today ?",
+    "type": "message",
+    "metadata": "{\"message_ref\":\"1794532214828\"}",
+    "created_at": "2026-11-13T01:10:15Z",
+    "sender": {
+     "id": 8398694,
+     "slug": "juicer32",
+     "username": "Juicer32",
+     "identity": {
+      "color": "#00CCB3",
+      "badges": [],
+      "badges_v2": [
+       {
+        "name": "level",
+        "badge_type": "global",
+        "image_url": "https://ext.cdn.kick.com/chat/badges/28_2a14f4f6-7793-431b-8ffc-79f045c425fc.png",
+        "metadata": {
+         "level": 28
+        },
+        "selected": false,
+        "sort_order": 1
+       }
+      ]
+     }
+    }
+   },
+   {
+    "id": "6feba8f9-40a6-4cbf-9270-35b35712409b",
+    "chat_id": 668,
+    "user_id": 14279878,
+    "content": "[emote:5747864:collectiblesNAILS]",
+    "type": "message",
+    "metadata": "{\"message_ref\":\"1794532213133\"}",
+    "created_at": "2026-11-13T01:10:09Z",
+    "sender": {
+     "id": 14279878,
+     "slug": "bjue",
+     "username": "bjue",
+     "identity": {
+      "color": "#E9113C",
+      "badges": [],
+      "badges_v2": [
+       {
+        "name": "level",
+        "badge_type": "global",
+        "image_url": "https://ext.cdn.kick.com/chat/badges/34_019f35ce-472b-7c85-b482-8e7b7ed343b1.png",
+        "metadata": {
+         "level": 34
+        },
+        "selected": true,
+        "sort_order": 1
+       }
+      ]
+     }
+    }
+   },
+   {
+    "id": "27a765fe-3415-46ab-b5cb-064d287e445f",
+    "chat_id": 668,
+    "user_id": 14279878,
+    "content": "[emote:5747864:collectiblesNAILS]",
+    "type": "message",
+    "metadata": "{\"message_ref\":\"1794532212104\"}",
+    "created_at": "2026-11-13T01:10:08Z",
+    "sender": {
+     "id": 14279878,
+     "slug": "bjue",
+     "username": "bjue",
+     "identity": {
+      "color": "#E9113C",
+      "badges": [],
+      "badges_v2": [
+       {
+        "name": "level",
+        "badge_type": "global",
+        "image_url": "https://ext.cdn.kick.com/chat/badges/34_019f35ce-472b-7c85-b482-8e7b7ed343b1.png",
+        "metadata": {
+         "level": 34
+        },
+        "selected": true,
+        "sort_order": 1
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "cursor": "1794530160299543",
+  "pinned_message": null
+ }
+}

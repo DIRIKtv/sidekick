@@ -31,6 +31,12 @@ class ChannelActivity : FragmentActivity() {
     private var channel: ChannelInfo? = null
     private var videos: List<Video> = emptyList()
     private var clips: List<com.diriktv.sidekick.data.Clip> = emptyList()
+    /** The next page of clips, or null when there are no more. */
+    private var clipsNext: String? = null
+    private var clipsLoading = false
+    /** Which clips: Kick's day, week, month or all. */
+    private var clipTime = "all"
+    private val clipTimes = listOf("day" to "Today", "week" to "This week", "month" to "This month", "all" to "All time")
     private lateinit var vodAdapter: GridAdapter
     private var header: View? = null
     /** The open tab: 0 past broadcasts, 1 clips. */
@@ -57,7 +63,7 @@ class ChannelActivity : FragmentActivity() {
         setContentView(R.layout.activity_channel)
         prefs = Prefs(this)
         list = findViewById(R.id.list)
-        vodAdapter = GridAdapter(onClick = { Nav.onCardClick(this, it) })
+        vodAdapter = GridAdapter(onClick = { Nav.onCardClick(this, it) }, onNearEnd = { if (tab == 1) loadMoreClips() })
         val span = 4
         list.layoutManager = CenterGridLayoutManager(this, span).apply {
             spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
@@ -98,7 +104,7 @@ class ChannelActivity : FragmentActivity() {
         findViewById<View>(R.id.progress).setVisible(!errorRetry.showing)
         lifecycleScope.launch {
             val vids = async { runCatching { KickApi.videos(slug) } }
-            val clipsJob = async { runCatching { KickApi.clips(slug, time = "all").items } }
+            val clipsJob = async { runCatching { KickApi.clips(slug, time = clipTime) } }
             try {
                 channel = KickApi.channel(slug)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -115,7 +121,7 @@ class ChannelActivity : FragmentActivity() {
             findViewById<ImageView>(R.id.bannerBg).loadThumb(channel?.banner)
             headerAdapter.notifyItemInserted(0)
             vids.await().let { r -> videos = r.getOrDefault(emptyList()); videosError = r.exceptionOrNull() }
-            clipsJob.await().let { r -> clips = r.getOrDefault(emptyList()); clipsError = r.exceptionOrNull() }
+            clipsJob.await().let { r -> clips = r.getOrNull()?.items.orEmpty(); clipsNext = r.getOrNull()?.next; clipsError = r.exceptionOrNull() }
             if (videos.isEmpty() && videosError == null && clips.isNotEmpty()) tab = 1
             loaded = true
             submitVideos()
@@ -151,9 +157,62 @@ class ChannelActivity : FragmentActivity() {
         showTabs()
     }
 
+    /** The next page of clips, as the grid nears its end. */
+    private fun loadMoreClips() {
+        val c = channel ?: return
+        val cursor = clipsNext ?: return
+        if (clipsLoading) return
+        clipsLoading = true
+        val time = clipTime
+        lifecycleScope.launch {
+            val page = runCatching { KickApi.clips(c.slug, cursor, time) }.getOrNull()
+            clipsLoading = false
+            if (page == null || time != clipTime) return@launch
+            val seen = clips.map { it.id }.toSet()
+            val more = page.items.filter { it.id !in seen }
+            clips = clips + more
+            clipsNext = page.next
+            if (tab == 1) vodAdapter.append(more.map { GridItem.Clip(it) })
+        }
+    }
+
+    /** Today, this week, this month or all time: the clips tab starts over with that list. */
+    private fun chooseClipTime() {
+        val c = channel ?: return
+        OptionSheet(this).show(OptionSheet.Page("Top clips", eyebrow = c.username) {
+            clipTimes.map { (key, label) ->
+                OptionSheet.Item(label, checked = key == clipTime) { sheet ->
+                    sheet.dismiss()
+                    if (key == clipTime) return@Item
+                    clipTime = key
+                    header?.findViewById<TextView>(R.id.clipSort)?.text = label
+                    clips = emptyList(); clipsNext = null
+                    retryTab()
+                }
+            }
+        })
+    }
+
+    /** The bio and the channel's links; a link opens on your phone through a QR code. */
+    private fun showAbout() {
+        val c = channel ?: return
+        OptionSheet(this).show(OptionSheet.Page("About ${c.username}", subtitle = c.bio?.takeIf { it.isNotBlank() }?.take(400)) {
+            c.socials.map { (name, url) ->
+                OptionSheet.Item(name, sub = url.removePrefix("https://"), icon = R.drawable.ic_info) { sheet ->
+                    sheet.dismiss()
+                    QrDialog.show(this@ChannelActivity, "${c.username} on $name", "Scan with your phone to open it.", url, url.removePrefix("https://"))
+                }
+            }.ifEmpty { listOf(OptionSheet.Item("No links", sub = "${c.username} hasn't added any") { it.dismiss() }) }
+        })
+    }
+
     private fun showTabs() {
         val h = header ?: return
         tabViews().forEachIndexed { i, t -> t.isActivated = i == tab }
+        h.findViewById<TextView>(R.id.clipSort).apply {
+            setVisible(tab == 1)
+            text = "${clipTimes.first { it.first == clipTime }.second}  ▾"
+        }
         val error = if (tab == 0) videosError else clipsError
         h.findViewById<TextView>(R.id.tabEmpty).apply {
             // "Empty" and "couldn't load" are different things: a failed list says so, and OK retries it.
@@ -181,8 +240,8 @@ class ChannelActivity : FragmentActivity() {
                 val r = runCatching { KickApi.videos(c.slug) }
                 videos = r.getOrDefault(emptyList()); videosError = r.exceptionOrNull()
             } else {
-                val r = runCatching { KickApi.clips(c.slug, time = "all").items }
-                clips = r.getOrDefault(emptyList()); clipsError = r.exceptionOrNull()
+                val r = runCatching { KickApi.clips(c.slug, time = clipTime) }
+                clips = r.getOrNull()?.items.orEmpty(); clipsNext = r.getOrNull()?.next; clipsError = r.exceptionOrNull()
             }
             if (tab != which) return@launch
             val hadFocus = header?.findViewById<View>(R.id.tabEmpty)?.isFocused == true
@@ -212,10 +271,33 @@ class ChannelActivity : FragmentActivity() {
             addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> v.pivotX = 0f; v.pivotY = v.height / 2f }
         }
         val fav = v.findViewById<TextView>(R.id.btnFav)
+        val alerts = v.findViewById<TextView>(R.id.btnAlerts)
+        fun updateAlerts() {
+            val muted = c.slug.lowercase() in prefs.mutedAlerts
+            alerts.text = if (muted) "Alerts off" else "Alerts on"
+            alerts.alpha = if (muted) 0.7f else 1f
+            alerts.setVisible(Follows.isFollowing(this, c.slug) && prefs.liveAlerts)
+        }
+        alerts.focusZoom(1.05f)
+        alerts.setOnClickListener {
+            val key = c.slug.lowercase()
+            val muted = key in prefs.mutedAlerts
+            prefs.mutedAlerts = if (muted) prefs.mutedAlerts - key else prefs.mutedAlerts + key
+            updateAlerts()
+            android.widget.Toast.makeText(this, if (muted) "You'll be told when ${c.username} goes live" else "No more go-live alerts for ${c.username}",
+                android.widget.Toast.LENGTH_SHORT).show()
+        }
+        v.findViewById<TextView>(R.id.btnAbout).apply {
+            setVisible(c.socials.isNotEmpty() || !c.bio.isNullOrBlank())
+            focusZoom(1.05f)
+            setOnClickListener { showAbout() }
+        }
+        v.findViewById<TextView>(R.id.clipSort).setOnClickListener { chooseClipTime() }
         fun updateFav() {
             val on = Follows.isFollowing(this, c.slug)
             fav.text = if (on) "Following" else "Follow"
             fav.setCompoundDrawablesRelativeWithIntrinsicBounds(if (on) R.drawable.ic_heart else R.drawable.ic_heart_outline, 0, 0, 0)
+            updateAlerts()
         }
         fun toggle() = lifecycleScope.launch {
             val result = Follows.toggle(this@ChannelActivity, c.slug, c.username, c.avatar)

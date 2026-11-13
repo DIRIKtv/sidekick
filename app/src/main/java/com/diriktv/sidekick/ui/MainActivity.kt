@@ -223,12 +223,37 @@ class MainActivity : FragmentActivity() {
         }
         content.postDelayed({
             lifecycleScope.launch {
+                // Just updated: show what changed (and leave the update check for next time).
+                if (showWhatsNew()) return@launch
                 val release = com.diriktv.sidekick.data.Updater.checkIfDue(this@MainActivity)
                 showUpdateDot()
                 if (release == null) return@launch
                 if (!isFinishing && hasWindowFocus()) UpdateFlow(this@MainActivity, release).show()
             }
         }, 2500)
+    }
+
+    /**
+     * The first time the app opens after an update, the new version's release notes as a sheet.
+     * Returns true when it showed them. A fresh install doesn't get them (it's all new).
+     */
+    private suspend fun showWhatsNew(): Boolean {
+        val prefs = com.diriktv.sidekick.data.Prefs(this)
+        val version = com.diriktv.sidekick.BuildConfig.VERSION_NAME.removeSuffix("-debug")
+        if (prefs.whatsNewSeen == version) return false
+        val info = packageManager.getPackageInfo(packageName, 0)
+        if (info.firstInstallTime == info.lastUpdateTime) {
+            prefs.whatsNewSeen = version
+            return false
+        }
+        val notes = com.diriktv.sidekick.data.Updater.notesFor(version) ?: return false // offline: next time
+        val changes = com.diriktv.sidekick.data.ReleaseNotes.whatsNew(notes)
+        prefs.whatsNewSeen = version
+        if (changes.isEmpty() || isFinishing || !hasWindowFocus()) return false
+        OptionSheet(this).show(OptionSheet.Page("What's new", eyebrow = "Sidekick $version") {
+            changes.take(30).map { c -> OptionSheet.Item(c.title, sub = c.detail) { it.dismiss() } }
+        })
+        return true
     }
 
     private fun offerCrashReport() {

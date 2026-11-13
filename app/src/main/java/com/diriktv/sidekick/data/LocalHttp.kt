@@ -77,7 +77,7 @@ object LocalHttp {
     }
 
     /** Reads one request: headers up to the blank line, then exactly Content-Length bytes of body. */
-    fun read(s: Socket): Request? {
+    fun read(s: Socket, maxBody: Int = MAX_BODY): Request? {
         val deadline = System.currentTimeMillis() + REQUEST_DEADLINE_MS
         fun timeLeft() = (deadline - System.currentTimeMillis()).toInt()
         val input: InputStream = BufferedInputStream(s.getInputStream())
@@ -94,7 +94,9 @@ object LocalHttp {
         val target = parts.getOrNull(1) ?: "/"
         val length = lines.firstOrNull { it.startsWith("Content-Length:", true) }
             ?.substringAfter(':')?.trim()?.toIntOrNull() ?: 0
-        val bodyBytes = ByteArray(length.coerceIn(0, MAX_BODY))
+        // Bigger than allowed: refuse it, rather than reading part of it as if it were all.
+        if (length > maxBody) return null
+        val bodyBytes = ByteArray(length.coerceIn(0, maxBody))
         var read = 0
         while (read < bodyBytes.size) {
             if (timeLeft() <= 0) return null
@@ -111,12 +113,12 @@ object LocalHttp {
 
     fun respond(s: Socket, code: Int, type: String, body: String) = respondBytes(s, code, type, body.toByteArray(Charsets.UTF_8))
 
-    fun respondBytes(s: Socket, code: Int, type: String, bytes: ByteArray, cache: Boolean = false) {
+    fun respondBytes(s: Socket, code: Int, type: String, bytes: ByteArray, cache: Boolean = false, extraHeaders: String = "") {
         val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; 429 -> "Too Many Requests"; else -> "Not Found" }
         // no-referrer: the key is in the page's address, and it loads images from other sites.
         val head = "HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
             "Cache-Control: ${if (cache) "max-age=86400" else "no-store"}\r\nReferrer-Policy: no-referrer\r\n" +
-            "X-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+            "X-Content-Type-Options: nosniff\r\n${extraHeaders}Connection: close\r\n\r\n"
         s.getOutputStream().apply { write(head.toByteArray()); write(bytes); flush() }
     }
 

@@ -1,0 +1,28 @@
+{
+ "data": {
+  "id": 137495764,
+  "slug": "f5fcd3a7a033e668-n3on-x-neveah",
+  "session_title": "N3on x Neveah",
+  "created_at": "2026-11-12T22:22:40.000000Z",
+  "language": "English",
+  "is_mature": false,
+  "viewers": 36183,
+  "category": {
+   "id": 8549,
+   "name": "IRL",
+   "slug": "irl",
+   "tags": [
+    "Adventure"
+   ],
+   "parent_category": {
+    "id": 2,
+    "slug": "irl"
+   }
+  },
+  "playback_url": "https://example.invalid/channel.m3u8",
+  "thumbnail": {
+   "src": "https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/720.webp?versionId=yIqBIFC58ZGX3vgPrhQH9QHTdR5KTaen",
+   "srcset": "https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/1080.webp?versionId=WPHZ9p1zW4kg6t0dNeBHhrH1SYW233Wc 1920w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/720.webp?versionId=yIqBIFC58ZGX3vgPrhQH9QHTdR5KTaen 1280w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/360.webp?versionId=IC3vqv3SoG.geYJtDpmDBBHzRa0jz3hc 480w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/160.webp?versionId=awY6Mk.lv2MEVhBHFNZC8E_h4fbeMWAF 284w, https://images.kick.com/video_thumbnails/BpABZhKymTnv/5pVlAPY6vIqA/480.webp?versionId=qNMYdCx0kp5dMMq_Todwaxn4HbkMSrmI 640w"
+  }
+ }
+}

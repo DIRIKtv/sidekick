@@ -35,6 +35,12 @@ class Prefs(context: Context) {
         // file, so one copy serves them all; a write replaces it.
         @Volatile private var favoritesCache: List<Favorite>? = null
         @Volatile private var historyCache: List<HistoryEntry>? = null
+
+        /** The preferences file changed underneath (a backup was restored): read it afresh. */
+        fun forgetCached() {
+            favoritesCache = null
+            historyCache = null
+        }
     }
 
     private val sp: SharedPreferences = context.getSharedPreferences("sidekick", Context.MODE_PRIVATE)
@@ -299,6 +305,31 @@ class Prefs(context: Context) {
     var multiViewBig: Boolean
         get() = sp.getBoolean("multiview_big", false)
         set(v) = sp.edit().putBoolean("multiview_big", v).apply()
+
+    /** Keep the app still: no slides, drifting pictures or pulsing glows (see ui.Motion). */
+    var reduceMotion: Boolean
+        get() = sp.getBoolean("reduce_motion", false)
+        set(v) = sp.edit().putBoolean("reduce_motion", v).apply()
+
+    /** Bigger text on cards. */
+    var largerText: Boolean
+        get() = sp.getBoolean("larger_text", false)
+        set(v) = sp.edit().putBoolean("larger_text", v).apply()
+
+    /** Channels whose go-live alerts are turned off (lowercase slugs). */
+    var mutedAlerts: Set<String>
+        get() = sp.getStringSet("muted_alerts", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("muted_alerts", v.map { it.lowercase() }.toSet()).apply()
+
+    /** Following's order: "viewers", "recent" (recently live) or "name". */
+    var followingSort: String
+        get() = sp.getString("following_sort", "viewers") ?: "viewers"
+        set(v) = sp.edit().putString("following_sort", v).apply()
+
+    /** The version whose What's new was last shown (or skipped on a first install). */
+    var whatsNewSeen: String?
+        get() = sp.getString("whats_new_seen", null)
+        set(v) = sp.edit().putString("whats_new_seen", v).apply()
 
     /** Pages slide in from the direction you moved in the side menu. */
     var pageTransitions: Boolean

@@ -138,6 +138,28 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
 
     companion object {
         const val MAX_MESSAGES = 150
+        /** While chat is paused to scroll back, it keeps more so what's being read isn't cut off. */
+        const val MAX_PAUSED = 400
+        /** An image that failed to load isn't asked for again for this long. */
+        const val FAILED_RETRY_MS = 5 * 60_000L
+    }
+
+    /** Images that failed to load, and when. */
+    private val failed = HashMap<String, Long>()
+
+    /** How many messages are kept; raised while chat is paused (see [MAX_PAUSED]). */
+    var maxMessages = MAX_MESSAGES
+        set(value) {
+            field = value
+            trim()
+        }
+
+    private fun trim() {
+        if (messages.size > maxMessages) {
+            val drop = messages.size - maxMessages
+            repeat(drop) { rendered.remove(messages.removeAt(0)) }
+            notifyItemRangeRemoved(0, drop)
+        }
     }
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
@@ -152,11 +174,7 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
         val start = messages.size
         messages.addAll(batch)
         notifyItemRangeInserted(start, batch.size)
-        if (messages.size > MAX_MESSAGES) {
-            val drop = messages.size - MAX_MESSAGES
-            repeat(drop) { rendered.remove(messages.removeAt(0)) }
-            notifyItemRangeRemoved(0, drop)
-        }
+        trim()
     }
 
     fun contains(id: String) = id.isNotEmpty() && messages.any { it.id == id }
@@ -170,7 +188,7 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
     /** Puts [batch] (older messages, oldest first) at the top, before anything already shown. */
     fun prepend(batch: List<ChatMessage>) {
         if (batch.isEmpty()) return
-        val room = (MAX_MESSAGES - messages.size).coerceAtLeast(0)
+        val room = (maxMessages - messages.size).coerceAtLeast(0)
         val fit = batch.takeLast(room)
         if (fit.isEmpty()) return
         messages.addAll(0, fit)
@@ -341,6 +359,8 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
     /** A cached network image (emote or badge), or null while it loads; rows redraw when it arrives. */
     private fun remoteImage(url: String): Drawable? {
         images.get(url)?.let { return it }
+        // Failed a moment ago: show the name as text, rather than asking again for every message.
+        failed[url]?.let { if (System.currentTimeMillis() - it < FAILED_RETRY_MS) return null else failed.remove(url) }
         missingImage = true
         load(url, refresh = true)
         return null
@@ -374,7 +394,7 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
                     if (refresh) scheduleRefresh()
                 },
                 // Let a later message try again rather than leaving the name as text for good.
-                onError = { pending.remove(url) },
+                onError = { pending.remove(url); failed[url] = System.currentTimeMillis() },
             )
             .build()
         SingletonImageLoader.get(context).enqueue(req)
@@ -417,11 +437,17 @@ class ChatAdapter(private val context: Context, var textSizeSp: Int) : RecyclerV
         }, 120)
     }
 
-    private fun parseColor(c: String?): Int = try {
-        if (c.isNullOrBlank()) 0xFF53FC18.toInt() else Color.parseColor(c)
-    } catch (e: Exception) {
-        0xFF53FC18.toInt()
+    private fun parseColor(c: String?): Int = readableColors.getOrPut(c.orEmpty()) {
+        val raw = try {
+            if (c.isNullOrBlank()) 0xFF53FC18.toInt() else Color.parseColor(c)
+        } catch (e: Exception) {
+            0xFF53FC18.toInt()
+        }
+        ReadableColor.on(raw, ReadableColor.CHAT_BACKGROUND)
     }
+
+    /** Name colours made readable, by the colour Kick sent (only a few dozen are ever in use). */
+    private val readableColors = HashMap<String, Int>()
 
     class VH(val text: TextView) : RecyclerView.ViewHolder(text) {
         var mention = false

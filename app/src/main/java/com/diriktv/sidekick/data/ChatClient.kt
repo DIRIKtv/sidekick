@@ -24,6 +24,8 @@ data class ChatMessage(
     /** For a reply: who and what it answers. */
     val replyTo: String? = null,
     val replyText: String? = null,
+    /** Kick's id for the sender (needed to reply to them). */
+    val senderId: Int = 0,
 )
 
 /** Chat's restrictions, as Kick reports them for the chatroom. */
@@ -107,8 +109,16 @@ data class ChatPoll(
     val options: List<Option>,
     val secondsLeft: Int,
     val state: String = "ACTIVE",
+    /** Kick's id for a prediction (for voting); polls are voted on by option position. */
+    val id: String = "",
+    /** When [secondsLeft] was read, so the countdown can run between updates. */
+    val readAt: Long = System.currentTimeMillis(),
 ) {
-    data class Option(val label: String, val amount: Long, val won: Boolean = false)
+    data class Option(val label: String, val amount: Long, val won: Boolean = false, val id: String = "")
+
+    /** Seconds left right now, counting down from [secondsLeft]. */
+    fun secondsLeftNow(now: Long = System.currentTimeMillis()) =
+        (secondsLeft - ((now - readAt) / 1000).toInt()).coerceAtLeast(0)
 
     val total get() = options.sumOf { it.amount }
 
@@ -164,6 +174,7 @@ fun parseChatMessage(data: JSONObject): ChatMessage? {
     val replyText = meta?.optJSONObject("original_message")?.optStringOrNull("content")
     return ChatMessage(
         replyTo = replyTo,
+        senderId = sender.optInt("id"),
         replyText = replyText?.takeIf { replyTo != null },
         id = data.optString("id"),
         username = sender.optString("username"),
