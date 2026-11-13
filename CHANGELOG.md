@@ -3,6 +3,14 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.11.0 · November 12, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Muted words and blocked users:** hide chat messages with words or phrases you choose, and never see messages from people you block. Set them up in Settings → Chat or in the player's chat filters; they apply to every channel and to the phone chat page too
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- Holding ▼ in Settings jumped out of the page to the account at the bottom of the side menu
+
 ## 1.10.0 · November 12, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
