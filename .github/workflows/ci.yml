@@ -5,6 +5,7 @@ name: CI
 
 on:
   push:
+    branches: ['**'] # not release tags: their commit was already checked on its branch
   pull_request:
 
 concurrency:
@@ -25,6 +26,9 @@ jobs:
 
       # Installs the SDK tools and accepts the licences, so Gradle can fetch the platform it needs.
       - uses: android-actions/setup-android@v3
+        with:
+          # Its default also asks for the old "tools" package, which the SDK no longer has.
+          packages: platform-tools
 
       - uses: gradle/actions/setup-gradle@v4
 
