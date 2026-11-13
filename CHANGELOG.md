@@ -3,6 +3,31 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.10.0 · November 12, 2026
+
+### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
+- **Back up & restore:** Settings → App saves your settings, favourites, watch history and resume points to your phone through a QR code, and puts them back on this TV or a new one. Your TV asks before replacing anything, and your Kick sign-in is never included
+- **Vote from the sofa:** when you're signed in, vote in polls and predictions from ☰ → Vote in the player, or from the phone chat page
+- **Read back through chat:** pause chat to scroll through earlier messages (☰ → Chat → Scroll back, or ▶ from the last button towards chat). A "Back to newest" button shows how many new messages are waiting
+- **Phone chat replies and suggestions:** tap a message to reply to it, and get suggestions for @names and emotes as you type
+- **Sort Following:** by most viewers, recently live or A–Z, and offline channels show when they were last live
+- **More on channel pages:** clips keep loading as you scroll, can be sorted by today, this week, this month or all time, and About shows the channel's bio and links
+- **Go-live alerts per channel:** turn them off for a channel on its page or in the player's ☰. The alert now has a Watch now button, and OK works in the player too
+- **What's new:** after an update, the first open shows what changed
+- **Larger text and Reduce motion:** in Settings → Appearance
+
+### <img src="docs/icons/improved.png" width="20" height="22" align="top"> Improved
+- **Live polls:** the timer counts down every second and the bars slide to new results
+- **Readable names in chat:** dark name colours are lightened so they show up on the chat background
+- **The ▼ live channels bar:** has its own panel, and chat moves aside while it's open
+- **Cleaner cards:** stream titles on cards and alerts drop links and | dividers
+- **Phone chat:** messages removed by moderators disappear from your phone too, and a message that doesn't send says why (slow mode, followers-only and so on)
+- **Search:** the keyboard has an _ key
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- Old predictions (from an earlier stream, or locked and never decided) stayed above chat
+- An emote that failed to load was asked for again with every message that used it
+
 ## 1.9.0 · November 12, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
