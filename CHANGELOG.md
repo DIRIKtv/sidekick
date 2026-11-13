@@ -3,6 +3,11 @@
 All notable changes to Sidekick. Each version's notes are also on its
 [GitHub release](https://github.com/DIRIKtv/sidekick/releases).
 
+## 1.11.1 · November 12, 2026
+
+### <img src="docs/icons/fixed.png" width="20" height="22" align="top"> Fixed
+- **Sidekick closed as soon as it opened** (1.9.0 to 1.11.0, once you'd used it before and had watch history). Fire TV could also report this as "There was a problem parsing the package" or "App not installed". If Sidekick won't open for you: go to your TV's Settings → Applications → Manage installed applications → Sidekick → Clear cache, then open Sidekick and install this update
+
 ## 1.11.0 · November 12, 2026
 
 ### <img src="docs/icons/new.png" width="20" height="22" align="top"> New
